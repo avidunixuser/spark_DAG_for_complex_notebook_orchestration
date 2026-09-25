@@ -1,0 +1,52 @@
+name: Reference DAG checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  portable:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -e ".[test,cloud]"
+      - run: python -m ruff check spark_dag tests tools
+      - run: python tools/generate_notebooks.py
+      - run: git diff --exit-code -- "*.ipynb"
+      - run: python tools/run_tests.py --output ci-test-results.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: portable-results-${{ matrix.os }}
+          path: ci-test-results.json
+
+  spark:
+    runs-on: ubuntu-latest
+    env:
+      SPARK_LOCAL_IP: "127.0.0.1"
+      PYSPARK_PYTHON: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: python -m pip install -e ".[test,cloud,spark-test]"
+      - run: python tools/run_tests.py --spark --delta --output ci-spark-results.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spark-results
+          path: ci-spark-results.json

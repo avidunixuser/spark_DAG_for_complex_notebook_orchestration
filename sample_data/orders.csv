@@ -1,0 +1,7 @@
+order_id,customer_id,amount_cents
+o1,c1,1000
+o2,c2,2050
+o3,c1,500
+o3,c1,500
+o4,missing,300
+o5,c2,-10

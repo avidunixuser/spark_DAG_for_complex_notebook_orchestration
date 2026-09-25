@@ -1,0 +1,205 @@
+{
+  "schema_version": "1.1",
+  "configuration_version": "1.1.0",
+  "application_id": "reference_sales",
+  "application_name": "Restartable sales reference DAG",
+  "original_datastage_job": "NOT_SUPPLIED_REFERENCE_ONLY",
+  "environment": "local",
+  "code_version": "0.2.0",
+  "dag": {
+    "id": "sales_dag", "version": "1.0", "compatible_versions": [],
+    "entry_nodes": ["extract_orders", "extract_customers"]
+  },
+  "notebook_base_path": "notebooks",
+  "notebooks": {
+    "orchestrator": {"path": "orchestrator.ipynb", "component": "orchestrator", "fabric_name": "orchestrator"},
+    "extract_orders": {"path": "notebooks/extract_orders.ipynb", "component": "extract_orders", "fabric_name": "extract_orders"},
+    "extract_customers": {"path": "notebooks/extract_customers.ipynb", "component": "extract_customers", "fabric_name": "extract_customers"},
+    "transform_orders": {"path": "notebooks/transform_orders.ipynb", "component": "transform_orders", "fabric_name": "transform_orders"},
+    "quality_gate": {"path": "notebooks/quality_gate.ipynb", "component": "quality_gate", "fabric_name": "quality_gate"},
+    "publish_report": {"path": "notebooks/publish_report.ipynb", "component": "publish_report", "fabric_name": "publish_report"},
+    "deliver_report": {"path": "notebooks/deliver_report.ipynb", "component": "deliver_report", "fabric_name": "deliver_report"},
+    "notify_failure": {"path": "notebooks/notify_failure.ipynb", "component": "control_notice", "fabric_name": "notify_failure"},
+    "notify_timeout": {"path": "notebooks/notify_timeout.ipynb", "component": "control_notice", "fabric_name": "notify_timeout"},
+    "cleanup": {"path": "notebooks/cleanup.ipynb", "component": "cleanup", "fabric_name": "cleanup"}
+  },
+  "nodes": [
+    {
+      "id": "extract_orders", "notebook": "extract_orders", "original_stage": "SAMPLE::LandedOrders",
+      "description": "Read an immutable landed order snapshot; do not extract with JDBC.",
+      "dependencies": [], "trigger": {"type": "all_success"},
+      "parameters": {"source": {"$config": "sources.orders"}},
+      "expected_outputs": ["orders"], "timeout_seconds": 30,
+      "retry": {"max_retries": 1, "delay_seconds": 0.1, "backoff": 2, "max_delay_seconds": 2, "categories": ["INFRASTRUCTURE", "RETRYABLE_APPLICATION", "TIMEOUT"]},
+      "restart": {"eligible": true, "policy": "reuse_valid"},
+      "idempotency": {"strategy": "overwrite", "commit_boundary": "Immutable attempt artifact", "partial_write": "Unreferenced staging data", "recovery": "Read the same source snapshot", "duplicate_prevention": "Downstream uses only checkpoint references", "output_validation": "Content digest and row count"},
+      "checkpoint": {"name": "orders_landed", "required": true},
+      "failure_classification": "INFRASTRUCTURE", "critical": true,
+      "concurrency_group": "extract", "resources": {"source_reads": 1}
+    },
+    {
+      "id": "extract_customers", "notebook": "extract_customers", "original_stage": "SAMPLE::LandedCustomers",
+      "description": "Read the customer dimension snapshot in parallel with orders.",
+      "dependencies": [], "trigger": {"type": "all_success"},
+      "parameters": {"source": {"$config": "sources.customers"}},
+      "expected_outputs": ["customers"], "timeout_seconds": 30,
+      "retry": {"max_retries": 1, "delay_seconds": 0.1, "backoff": 2, "max_delay_seconds": 2, "categories": ["INFRASTRUCTURE", "RETRYABLE_APPLICATION", "TIMEOUT"]},
+      "restart": {"eligible": true, "policy": "reuse_valid"},
+      "idempotency": {"strategy": "overwrite", "commit_boundary": "Immutable attempt artifact", "partial_write": "Unreferenced staging data", "recovery": "Read the same source snapshot", "duplicate_prevention": "Downstream uses only checkpoint references", "output_validation": "Content digest and row count"},
+      "checkpoint": {"name": "customers_landed", "required": true},
+      "failure_classification": "INFRASTRUCTURE", "critical": true,
+      "concurrency_group": "extract", "resources": {"source_reads": 1}
+    },
+    {
+      "id": "transform_orders", "notebook": "transform_orders", "original_stage": "SAMPLE::JoinAndReject",
+      "description": "Fan-in; validate integer cents and keys, deduplicate exact rows, join the dimension, quarantine rejects.",
+      "dependencies": ["extract_orders", "extract_customers"], "trigger": {"type": "all_success"},
+      "parameters": {"rules": {"$config": "data_quality"}},
+      "expected_outputs": ["accepted", "rejects"], "timeout_seconds": 30,
+      "retry": {"max_retries": 1, "delay_seconds": 0.1, "backoff": 2, "max_delay_seconds": 2, "categories": ["INFRASTRUCTURE", "RETRYABLE_APPLICATION", "TIMEOUT"]},
+      "restart": {"eligible": true, "policy": "reuse_valid"},
+      "idempotency": {"strategy": "overwrite", "commit_boundary": "Both artifacts validated before checkpoint", "partial_write": "One artifact may exist but is not advertised", "recovery": "Recompute from immutable upstream artifacts", "duplicate_prevention": "Reject conflicting keys; collapse identical rows", "output_validation": "Digest, count, and key validation"},
+      "checkpoint": {"name": "orders_transformed", "required": true},
+      "failure_classification": "DATA_QUALITY", "critical": true,
+      "concurrency_group": "compute", "resources": {}
+    },
+    {
+      "id": "quality_gate", "notebook": "quality_gate", "original_stage": "SAMPLE::QualityGate",
+      "description": "Enforce reject and accepted-row thresholds without dropping rejected records.",
+      "dependencies": ["transform_orders"], "trigger": {"type": "all_success"},
+      "parameters": {"rules": {"$config": "data_quality"}},
+      "expected_outputs": ["accepted"], "timeout_seconds": 30,
+      "retry": {"max_retries": 0, "delay_seconds": 0, "backoff": 1, "max_delay_seconds": 0, "categories": []},
+      "restart": {"eligible": true, "policy": "reuse_valid"},
+      "idempotency": {"strategy": "natural", "commit_boundary": "Validated reference to upstream committed data", "partial_write": "No write", "recovery": "Re-evaluate the gate", "duplicate_prevention": "Read-only validation", "output_validation": "Thresholds, digest, and count"},
+      "checkpoint": {"name": "quality_approved", "required": true},
+      "failure_classification": "DATA_QUALITY", "critical": true,
+      "concurrency_group": "compute", "resources": {}
+    },
+    {
+      "id": "publish_report", "notebook": "publish_report", "original_stage": "SAMPLE::AggregateAndPublish",
+      "description": "Aggregate exact integer cents by region and publish an immutable report version.",
+      "dependencies": ["quality_gate"], "trigger": {"type": "all_success"},
+      "parameters": {"target": {"$config": "targets.report"}},
+      "expected_outputs": ["report"], "timeout_seconds": 30,
+      "retry": {"max_retries": 1, "delay_seconds": 0.1, "backoff": 2, "max_delay_seconds": 2, "categories": ["INFRASTRUCTURE", "RETRYABLE_APPLICATION", "TIMEOUT"]},
+      "restart": {"eligible": true, "policy": "reuse_valid"},
+      "idempotency": {"strategy": "overwrite", "commit_boundary": "Immutable report version and control checkpoint", "partial_write": "Unreferenced attempt artifact", "recovery": "Rebuild from the approved snapshot", "duplicate_prevention": "One published checkpoint per run/node", "output_validation": "Region totals and content digest"},
+      "checkpoint": {"name": "report_committed", "required": true},
+      "failure_classification": "INFRASTRUCTURE", "critical": true,
+      "concurrency_group": "publish", "resources": {"target_writes": 1}
+    },
+    {
+      "id": "deliver_report", "notebook": "deliver_report", "original_stage": "SAMPLE::DeliveryOutbox",
+      "description": "Commit one deduplicated delivery intent, not an actual external delivery.",
+      "dependencies": ["publish_report"],
+      "trigger": {"type": "all_success", "condition": {"parameter": "enabled", "equals": true}},
+      "parameters": {"enabled": {"$config": "notifications.enabled"}},
+      "expected_outputs": ["receipt"], "timeout_seconds": 30,
+      "retry": {"max_retries": 1, "delay_seconds": 0.1, "backoff": 2, "max_delay_seconds": 2, "categories": ["INFRASTRUCTURE", "RETRYABLE_APPLICATION", "TIMEOUT"]},
+      "restart": {"eligible": true, "policy": "reuse_valid"},
+      "idempotency": {"strategy": "deduplicate", "commit_boundary": "Transactional outbox event", "partial_write": "Intent may commit before the node checkpoint", "recovery": "Reuse the same business-key intent", "duplicate_prevention": "Stable key plus payload digest under the control-store lock", "output_validation": "Validate durable receipt and payload digest"},
+      "checkpoint": {"name": "delivery_requested", "required": true},
+      "failure_classification": "RETRYABLE_APPLICATION", "critical": true,
+      "concurrency_group": "publish", "resources": {"target_writes": 1}
+    },
+    {
+      "id": "notify_failure", "notebook": "notify_failure", "original_stage": "SAMPLE::FailureTrigger",
+      "description": "Record a failure notification intent after all main-path nodes are terminal.",
+      "dependencies": ["extract_orders", "extract_customers", "transform_orders", "quality_gate", "publish_report", "deliver_report"],
+      "trigger": {"type": "any_failed"},
+      "parameters": {"kind": "failure"},
+      "expected_outputs": ["notice"], "timeout_seconds": 30,
+      "retry": {"max_retries": 0, "delay_seconds": 0, "backoff": 1, "max_delay_seconds": 0, "categories": []},
+      "restart": {"eligible": true, "policy": "reuse_valid"},
+      "idempotency": {"strategy": "overwrite", "commit_boundary": "Immutable control notice", "partial_write": "Unreferenced attempt artifact", "recovery": "Recreate the notice", "duplicate_prevention": "Versioned notice reference", "output_validation": "Digest and count"},
+      "checkpoint": {"name": "failure_noted", "required": true},
+      "failure_classification": "INFRASTRUCTURE", "critical": false,
+      "concurrency_group": "control", "resources": {}
+    },
+    {
+      "id": "notify_timeout", "notebook": "notify_timeout", "original_stage": "SAMPLE::TimeoutTrigger",
+      "description": "Record a timeout notice; never automatically unlock uncertain workers.",
+      "dependencies": ["extract_orders", "extract_customers", "transform_orders", "quality_gate", "publish_report", "deliver_report"],
+      "trigger": {"type": "any_timed_out"},
+      "parameters": {"kind": "timeout"},
+      "expected_outputs": ["notice"], "timeout_seconds": 30,
+      "retry": {"max_retries": 0, "delay_seconds": 0, "backoff": 1, "max_delay_seconds": 0, "categories": []},
+      "restart": {"eligible": true, "policy": "reuse_valid"},
+      "idempotency": {"strategy": "overwrite", "commit_boundary": "Immutable control notice", "partial_write": "Unreferenced attempt artifact", "recovery": "Recreate the notice", "duplicate_prevention": "Versioned notice reference", "output_validation": "Digest and count"},
+      "checkpoint": {"name": "timeout_noted", "required": true},
+      "failure_classification": "TIMEOUT", "critical": false,
+      "concurrency_group": "control", "resources": {}
+    },
+    {
+      "id": "cleanup", "notebook": "cleanup", "original_stage": "SAMPLE::CompletionTrigger",
+      "description": "Record end-of-run cleanup bookkeeping; do not delete checkpoints or shared data.",
+      "dependencies": ["deliver_report", "notify_failure", "notify_timeout"], "trigger": {"type": "all_done"},
+      "parameters": {}, "expected_outputs": ["receipt"], "timeout_seconds": 30,
+      "retry": {"max_retries": 1, "delay_seconds": 0.1, "backoff": 2, "max_delay_seconds": 2, "categories": ["INFRASTRUCTURE", "RETRYABLE_APPLICATION", "TIMEOUT"]},
+      "restart": {"eligible": true, "policy": "reuse_valid"},
+      "idempotency": {"strategy": "overwrite", "commit_boundary": "Immutable cleanup receipt", "partial_write": "Unreferenced receipt", "recovery": "Recreate bookkeeping", "duplicate_prevention": "No external destructive side effect", "output_validation": "Digest and count"},
+      "checkpoint": {"name": "cleanup_recorded", "required": true},
+      "failure_classification": "INFRASTRUCTURE", "critical": true,
+      "concurrency_group": "control", "resources": {}
+    }
+  ],
+  "runtime": {
+    "platform": "local", "scheduling": "eager", "run_timeout_seconds": 180, "failure_policy": "continue_independent",
+    "poll_interval_seconds": 0.1, "cancel_grace_seconds": 30,
+    "allow_fault_injection": false, "fault_injection": {},
+    "databricks": {"existing_cluster_id": ""},
+    "fabric": {"workspace": ""}
+  },
+  "spark": {"max_concurrent_notebooks": 2, "settings": {"spark.sql.shuffle.partitions": "4", "spark.sql.session.timeZone": "UTC"}},
+  "sources": {
+    "orders": {"format": "csv", "path": "sample_data/orders.csv", "schema": "order_id STRING, customer_id STRING, amount_cents STRING"},
+    "customers": {"format": "csv", "path": "sample_data/customers.csv", "schema": "customer_id STRING, region STRING"}
+  },
+  "targets": {"report": {"group_by": "region", "amount_column": "amount_cents"}},
+  "lakehouse": {"root_uri": ""},
+  "control_store": {"backend": "sqlite", "path": ".runtime/control.sqlite3"},
+  "locking": {
+    "enabled": false, "account_url": "", "file_system": "dag-coordination", "directory": "reference-sales",
+    "credential": "managed_identity", "client_id": "", "wait_seconds": 60, "lease_duration": -1
+  },
+  "storage": {"backend": "local", "path": ".runtime/outputs"},
+  "checkpoint": {"required": true, "retention_days": 90},
+  "run_key_strategy": "business_date",
+  "concurrency": {"max_parallel": 2, "groups": {"extract": 2, "compute": 2, "publish": 1, "control": 2}, "resources": {"source_reads": 2, "target_writes": 1}},
+  "logging": {"enabled": true, "log_business_run_key": true},
+  "secret_references": {},
+  "reject_data": {"path": ".runtime/rejects"},
+  "data_quality": {"max_reject_count": 2, "minimum_accepted_rows": 3, "max_amount_cents": 1000000000},
+  "notifications": {"enabled": true, "delivery": "outbox", "secret_ref": null},
+  "environment_overrides": {
+    "local": {},
+    "fabric": {
+      "runtime": {"platform": "fabric", "scheduling": "barrier", "run_timeout_seconds": 7200, "poll_interval_seconds": 5},
+      "lakehouse": {"root_uri": "abfss://__REQUIRED__@onelake.dfs.fabric.microsoft.com/__REQUIRED__"},
+      "control_store": {"backend": "delta", "path": "Tables/dag_control_events"},
+      "storage": {"backend": "delta", "path": "Files/dag/artifacts"},
+      "reject_data": {"path": "Files/dag/rejects"},
+      "locking": {"enabled": true, "account_url": "https://__REQUIRED__.dfs.core.windows.net", "credential": "fabric_user"},
+      "sources": {
+        "orders": {"format": "delta", "path": "Tables/orders", "snapshot_version": 0},
+        "customers": {"format": "delta", "path": "Tables/customers", "snapshot_version": 0}
+      }
+    },
+    "databricks": {
+      "notebook_base_path": "__REQUIRED__",
+      "runtime": {"platform": "databricks", "scheduling": "eager", "run_timeout_seconds": 7200, "poll_interval_seconds": 5, "databricks": {"existing_cluster_id": "__REQUIRED__"}},
+      "lakehouse": {"root_uri": "abfss://__REQUIRED__@__REQUIRED__.dfs.core.windows.net/lakehouse"},
+      "control_store": {"backend": "delta", "path": "Tables/dag_control_events"},
+      "storage": {"backend": "delta", "path": "Files/dag/artifacts"},
+      "reject_data": {"path": "Files/dag/rejects"},
+      "locking": {"enabled": true, "account_url": "https://__REQUIRED__.dfs.core.windows.net", "credential": "workload_identity"},
+      "sources": {
+        "orders": {"format": "delta", "path": "Tables/orders", "snapshot_version": 0},
+        "customers": {"format": "delta", "path": "Tables/customers", "snapshot_version": 0}
+      }
+    }
+  },
+  "force_restart": {"enabled": false, "from_node": null},
+  "force_rerun": false
+}

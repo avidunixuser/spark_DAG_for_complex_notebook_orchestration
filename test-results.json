@@ -1,0 +1,877 @@
+{
+  "generated_at": "2026-09-25T00:15:36.474574+00:00",
+  "python": "3.12.3",
+  "operating_system": "Linux",
+  "architecture": "aarch64",
+  "code_fingerprint": "bbefb79240d89c1abeb19230ec8af96cea991b84e2277cf4b0f6842f07a8ccfe",
+  "configuration_fingerprint": "ab09449078ad3b710b98e7141a60d42557c4096beca05fc29d9da264f05e2c4c",
+  "spark_version": "4.0.1",
+  "delta_version": "4.0.0",
+  "duration_seconds": 254.883,
+  "tests_run": 131,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "successful": true,
+  "scope": "Reference DAG, not a conversion acceptance test for an original DataStage job.",
+  "cloud_validation": "Fabric, Databricks, and ADLS Gen2 file APIs are contract-tested with fakes, not live services.",
+  "spark_requested": true,
+  "delta_requested": true,
+  "results": [
+    {
+      "test": "tests.test_adapters.AdapterTests.test_adls_collision_is_not_a_reclaim",
+      "outcome": "passed",
+      "duration_seconds": 3.0827
+    },
+    {
+      "test": "tests.test_adapters.AdapterTests.test_adls_file_lease_is_infinite_and_does_not_break_other_owners",
+      "outcome": "passed",
+      "duration_seconds": 0.0744
+    },
+    {
+      "test": "tests.test_adapters.AdapterTests.test_adls_lock_file_creation_is_conditional",
+      "outcome": "passed",
+      "duration_seconds": 0.0774
+    },
+    {
+      "test": "tests.test_adapters.AdapterTests.test_adls_permission_error_is_not_retried_as_collision",
+      "outcome": "passed",
+      "duration_seconds": 0.0652
+    },
+    {
+      "test": "tests.test_adapters.AdapterTests.test_databricks_ambiguous_submission_is_quarantined",
+      "outcome": "passed",
+      "duration_seconds": 0.1906
+    },
+    {
+      "test": "tests.test_adapters.AdapterTests.test_databricks_parameter_widgets_preserve_injected_values",
+      "outcome": "passed",
+      "duration_seconds": 0.0941
+    },
+    {
+      "test": "tests.test_adapters.AdapterTests.test_databricks_timeout_waits_for_confirmed_cancellation",
+      "outcome": "passed",
+      "duration_seconds": 0.2338
+    },
+    {
+      "test": "tests.test_adapters.AdapterTests.test_databricks_unconfirmed_cancel_remains_quarantined",
+      "outcome": "passed",
+      "duration_seconds": 0.3546
+    },
+    {
+      "test": "tests.test_adapters.AdapterTests.test_databricks_uses_idempotent_submission_and_disables_native_retry",
+      "outcome": "passed",
+      "duration_seconds": 1.1159
+    },
+    {
+      "test": "tests.test_adapters.AdapterTests.test_fabric_missing_result_is_not_success",
+      "outcome": "passed",
+      "duration_seconds": 0.5776
+    },
+    {
+      "test": "tests.test_adapters.AdapterTests.test_fabric_partial_failure_preserves_results_and_quarantines_unknown_worker",
+      "outcome": "passed",
+      "duration_seconds": 0.896
+    },
+    {
+      "test": "tests.test_adapters.AdapterTests.test_fabric_uses_native_shared_session_batch",
+      "outcome": "passed",
+      "duration_seconds": 1.8167
+    },
+    {
+      "test": "tests.test_adapters.AdapterTests.test_lock_location_requires_dfs_and_a_user_owned_directory (endpoint='http://example.dfs.core.windows.net')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_adapters.AdapterTests.test_lock_location_requires_dfs_and_a_user_owned_directory (endpoint='https://example.blob.core.windows.net')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_adapters.AdapterTests.test_lock_location_requires_dfs_and_a_user_owned_directory",
+      "outcome": "passed",
+      "duration_seconds": 0.1551
+    },
+    {
+      "test": "tests.test_adapters.AdapterTests.test_notebook_setup_errors_do_not_expose_raw_sdk_details",
+      "outcome": "passed",
+      "duration_seconds": 0.1542
+    },
+    {
+      "test": "tests.test_adapters.AdapterTests.test_uncertain_run_retains_adls_file_lease",
+      "outcome": "passed",
+      "duration_seconds": 0.1729
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_abfss_container_authority_is_not_mistaken_for_credentials",
+      "outcome": "passed",
+      "duration_seconds": 0.3324
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_cloud_placeholders_fail_closed (platform='fabric')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_cloud_placeholders_fail_closed (platform='databricks')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_cloud_placeholders_fail_closed",
+      "outcome": "passed",
+      "duration_seconds": 0.2653
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_cloud_sqlite_is_rejected",
+      "outcome": "passed",
+      "duration_seconds": 0.3016
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_duplicate_json_properties_rejected",
+      "outcome": "passed",
+      "duration_seconds": 0.2424
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_environment_overrides_are_deep_and_explicit",
+      "outcome": "passed",
+      "duration_seconds": 0.4014
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_fabric_eager_scheduling_is_not_allowed",
+      "outcome": "passed",
+      "duration_seconds": 0.155
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_fabric_fanout_can_reuse_a_parameterized_notebook",
+      "outcome": "passed",
+      "duration_seconds": 0.5476
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_fault_injection_requires_opt_in",
+      "outcome": "passed",
+      "duration_seconds": 0.5266
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_force_flags_are_distinct_and_mutually_exclusive",
+      "outcome": "passed",
+      "duration_seconds": 0.6089
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_inline_secrets_and_uri_credentials_rejected (shape=['password'])",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_inline_secrets_and_uri_credentials_rejected (shape=['endpoint'])",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_inline_secrets_and_uri_credentials_rejected (shape=['endpoint'])",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_inline_secrets_and_uri_credentials_rejected",
+      "outcome": "passed",
+      "duration_seconds": 0.3771
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_lakehouse_nonstandard_port_is_not_silently_discarded",
+      "outcome": "passed",
+      "duration_seconds": 0.2929
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_lakehouse_paths_cannot_escape_managed_folders",
+      "outcome": "passed",
+      "duration_seconds": 0.2565
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_lakehouse_paths_resolve_for_both_cloud_adapters (platform='fabric')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_lakehouse_paths_resolve_for_both_cloud_adapters (platform='databricks')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_lakehouse_paths_resolve_for_both_cloud_adapters",
+      "outcome": "passed",
+      "duration_seconds": 0.6431
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_malformed_json",
+      "outcome": "passed",
+      "duration_seconds": 0.1782
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_missing_required_configuration (field='sources')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_missing_required_configuration (field='retry')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_missing_required_configuration (field='configuration_version')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_missing_required_configuration (field='control_store')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_missing_required_configuration",
+      "outcome": "passed",
+      "duration_seconds": 0.3093
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_missing_secret_reference_is_rejected",
+      "outcome": "passed",
+      "duration_seconds": 0.4915
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_missing_sidecar",
+      "outcome": "passed",
+      "duration_seconds": 1.0158
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_nonfinite_json_numbers_rejected",
+      "outcome": "passed",
+      "duration_seconds": 0.254
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_notebooks_validate_and_compile (notebook='child_template.ipynb')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_notebooks_validate_and_compile (notebook='orchestrator.ipynb')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_notebooks_validate_and_compile (notebook='transform_orders.ipynb')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_notebooks_validate_and_compile (notebook='notify_failure.ipynb')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_notebooks_validate_and_compile (notebook='quality_gate.ipynb')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_notebooks_validate_and_compile (notebook='extract_customers.ipynb')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_notebooks_validate_and_compile (notebook='deliver_report.ipynb')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_notebooks_validate_and_compile (notebook='publish_report.ipynb')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_notebooks_validate_and_compile (notebook='extract_orders.ipynb')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_notebooks_validate_and_compile (notebook='notify_timeout.ipynb')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_notebooks_validate_and_compile (notebook='cleanup.ipynb')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_notebooks_validate_and_compile",
+      "outcome": "passed",
+      "duration_seconds": 0.4242
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_old_blob_schema_is_not_silently_accepted",
+      "outcome": "passed",
+      "duration_seconds": 0.1992
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_schema_override_rejected",
+      "outcome": "passed",
+      "duration_seconds": 0.7656
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_secret_reference_names_may_contain_token",
+      "outcome": "passed",
+      "duration_seconds": 0.7893
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_sidecar_filename_override",
+      "outcome": "passed",
+      "duration_seconds": 0.4216
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_sidecar_must_resolve_in_deployment_folder",
+      "outcome": "passed",
+      "duration_seconds": 0.1514
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_spark_hadoop_account_keys_are_rejected",
+      "outcome": "passed",
+      "duration_seconds": 0.1732
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_unsupported_configuration_version",
+      "outcome": "passed",
+      "duration_seconds": 0.3489
+    },
+    {
+      "test": "tests.test_configuration.ConfigurationTests.test_valid_json_configuration",
+      "outcome": "passed",
+      "duration_seconds": 0.3946
+    },
+    {
+      "test": "tests.test_control_store.ControlStoreTests.test_abandoned_run_requires_explicit_reconciliation",
+      "outcome": "passed",
+      "duration_seconds": 2.6403
+    },
+    {
+      "test": "tests.test_control_store.ControlStoreTests.test_attempt_claim_is_atomic",
+      "outcome": "passed",
+      "duration_seconds": 0.4556
+    },
+    {
+      "test": "tests.test_control_store.ControlStoreTests.test_audit_sequence_corruption_is_rejected",
+      "outcome": "passed",
+      "duration_seconds": 0.3467
+    },
+    {
+      "test": "tests.test_control_store.ControlStoreTests.test_claim_does_not_depend_on_a_remote_child_clock",
+      "outcome": "passed",
+      "duration_seconds": 0.5332
+    },
+    {
+      "test": "tests.test_control_store.ControlStoreTests.test_delta_uncertain_commit_retains_transaction_lease",
+      "outcome": "passed",
+      "duration_seconds": 0.1988
+    },
+    {
+      "test": "tests.test_control_store.ControlStoreTests.test_delta_writes_state_and_audit_in_one_atomic_batch",
+      "outcome": "passed",
+      "duration_seconds": 0.3253
+    },
+    {
+      "test": "tests.test_control_store.ControlStoreTests.test_errors_and_logs_never_echo_sensitive_exception_text",
+      "outcome": "passed",
+      "duration_seconds": 0.2449
+    },
+    {
+      "test": "tests.test_control_store.ControlStoreTests.test_outbox_requires_current_running_claim",
+      "outcome": "passed",
+      "duration_seconds": 0.4258
+    },
+    {
+      "test": "tests.test_control_store.ControlStoreTests.test_report_overflow_fails_before_any_output_commit",
+      "outcome": "passed",
+      "duration_seconds": 0.6087
+    },
+    {
+      "test": "tests.test_control_store.ControlStoreTests.test_stale_attempt_token_cannot_claim",
+      "outcome": "passed",
+      "duration_seconds": 0.418
+    },
+    {
+      "test": "tests.test_control_store.ControlStoreTests.test_success_requires_final_checkpoint",
+      "outcome": "passed",
+      "duration_seconds": 0.6644
+    },
+    {
+      "test": "tests.test_control_store.ControlStoreTests.test_transaction_rollback_leaves_no_partial_events",
+      "outcome": "passed",
+      "duration_seconds": 0.3464
+    },
+    {
+      "test": "tests.test_control_store.ControlStoreTests.test_uncertain_attempt_cannot_retry",
+      "outcome": "passed",
+      "duration_seconds": 0.5863
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_compensation_requires_declared_node",
+      "outcome": "passed",
+      "duration_seconds": 0.4547
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_cycle_detection",
+      "outcome": "passed",
+      "duration_seconds": 0.4893
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_dependency_trigger_cannot_be_a_root",
+      "outcome": "passed",
+      "duration_seconds": 0.4969
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_descendants_preserve_unrelated_branch",
+      "outcome": "passed",
+      "duration_seconds": 0.475
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_deterministic_topological_plan",
+      "outcome": "passed",
+      "duration_seconds": 0.6257
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_duplicate_node_ids",
+      "outcome": "passed",
+      "duration_seconds": 0.3288
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_invalid_concurrency_settings",
+      "outcome": "passed",
+      "duration_seconds": 0.3836
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_invalid_configuration_reference",
+      "outcome": "passed",
+      "duration_seconds": 0.3053
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_invalid_trigger",
+      "outcome": "passed",
+      "duration_seconds": 0.2017
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_manual_side_effects_cannot_automatically_retry",
+      "outcome": "passed",
+      "duration_seconds": 0.3641
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_missing_dependency_detection",
+      "outcome": "passed",
+      "duration_seconds": 0.3908
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_missing_notebook_definition",
+      "outcome": "passed",
+      "duration_seconds": 0.8959
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_missing_notebook_file",
+      "outcome": "passed",
+      "duration_seconds": 0.3141
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_resource_capacity_validation",
+      "outcome": "passed",
+      "duration_seconds": 0.3613
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_success_failure_timeout_and_completion_triggers (trigger='all_success', states={'a': <Status.SUCCEEDED: 'SUCCEEDED'>, 'b': <Status.SKIPPED_ALREADY_SATISFIED: 'SKIPPED_ALREADY_SATISFIED'>})",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_success_failure_timeout_and_completion_triggers (trigger='all_success', states={'a': <Status.SUCCEEDED: 'SUCCEEDED'>, 'b': <Status.FAILED: 'FAILED'>})",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_success_failure_timeout_and_completion_triggers (trigger='any_success', states={'a': <Status.SUCCEEDED: 'SUCCEEDED'>, 'b': <Status.SKIPPED_CONDITION: 'SKIPPED_CONDITION'>})",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_success_failure_timeout_and_completion_triggers (trigger='all_success', states={'a': <Status.SUCCEEDED: 'SUCCEEDED'>, 'b': <Status.SKIPPED_CONDITION: 'SKIPPED_CONDITION'>})",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_success_failure_timeout_and_completion_triggers (trigger='any_failed', states={'a': <Status.FAILED: 'FAILED'>, 'b': <Status.SUCCEEDED: 'SUCCEEDED'>})",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_success_failure_timeout_and_completion_triggers (trigger='any_timed_out', states={'a': <Status.TIMED_OUT: 'TIMED_OUT'>, 'b': <Status.SUCCEEDED: 'SUCCEEDED'>})",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_success_failure_timeout_and_completion_triggers (trigger='all_done', states={'a': <Status.CANCELLED: 'CANCELLED'>, 'b': <Status.BLOCKED: 'BLOCKED'>})",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_success_failure_timeout_and_completion_triggers",
+      "outcome": "passed",
+      "duration_seconds": 0.167
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_unreachable_nodes",
+      "outcome": "passed",
+      "duration_seconds": 0.3939
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_unsupported_restart_policy",
+      "outcome": "passed",
+      "duration_seconds": 0.2604
+    },
+    {
+      "test": "tests.test_dag.DagValidationTests.test_upstream_reference_requires_dependency",
+      "outcome": "passed",
+      "duration_seconds": 0.3782
+    },
+    {
+      "test": "tests.test_delta.DeltaIntegrationTests.test_delta_event_cache_refreshes_another_writers_commits",
+      "outcome": "passed",
+      "duration_seconds": 23.4457
+    },
+    {
+      "test": "tests.test_delta.DeltaIntegrationTests.test_delta_proof_cache_avoids_rehashing_committed_outputs",
+      "outcome": "passed",
+      "duration_seconds": 4.5258
+    },
+    {
+      "test": "tests.test_delta.DeltaIntegrationTests.test_delta_source_fingerprint_reads_metadata_not_dataset_rows",
+      "outcome": "passed",
+      "duration_seconds": 4.6021
+    },
+    {
+      "test": "tests.test_delta.DeltaIntegrationTests.test_real_delta_output_validation_pins_identity_and_version",
+      "outcome": "passed",
+      "duration_seconds": 6.1251
+    },
+    {
+      "test": "tests.test_delta.DeltaIntegrationTests.test_real_delta_state_and_audit_commit",
+      "outcome": "passed",
+      "duration_seconds": 4.3011
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_audit_completeness",
+      "outcome": "passed",
+      "duration_seconds": 1.6715
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_changed_payload_cannot_reuse_same_side_effect_key",
+      "outcome": "passed",
+      "duration_seconds": 3.0519
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_compensation_requires_validated_companion_and_approval",
+      "outcome": "passed",
+      "duration_seconds": 2.0736
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_concurrent_orchestrator_collision",
+      "outcome": "passed",
+      "duration_seconds": 1.355
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_conditional_execution_and_completion_cleanup",
+      "outcome": "passed",
+      "duration_seconds": 1.0498
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_corrupt_output_cannot_be_reused",
+      "outcome": "passed",
+      "duration_seconds": 1.9041
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_fail_fast_still_runs_failure_and_completion_handlers",
+      "outcome": "passed",
+      "duration_seconds": 0.6834
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_failure_injection_into_every_restartable_node (failed_node='extract_orders')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_failure_injection_into_every_restartable_node (failed_node='extract_customers')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_failure_injection_into_every_restartable_node (failed_node='transform_orders')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_failure_injection_into_every_restartable_node (failed_node='quality_gate')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_failure_injection_into_every_restartable_node (failed_node='publish_report')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_failure_injection_into_every_restartable_node (failed_node='deliver_report')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_failure_injection_into_every_restartable_node (failed_node='notify_failure')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_failure_injection_into_every_restartable_node (failed_node='notify_timeout')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_failure_injection_into_every_restartable_node (failed_node='cleanup')",
+      "outcome": "passed",
+      "duration_seconds": null
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_failure_injection_into_every_restartable_node",
+      "outcome": "passed",
+      "duration_seconds": 25.8207
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_force_rerun_successful_run_without_duplicate_side_effect",
+      "outcome": "passed",
+      "duration_seconds": 3.1077
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_force_restart_from_named_checkpoint",
+      "outcome": "passed",
+      "duration_seconds": 2.2848
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_force_restart_invalidates_only_selected_downstream",
+      "outcome": "passed",
+      "duration_seconds": 2.4406
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_happy_path_and_data_correctness",
+      "outcome": "passed",
+      "duration_seconds": 1.2216
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_incomplete_checkpoint_proof_is_not_reused",
+      "outcome": "passed",
+      "duration_seconds": 1.8586
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_manual_approval_cannot_be_bypassed_by_an_intermediate_blocked_run",
+      "outcome": "passed",
+      "duration_seconds": 2.8759
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_manual_non_idempotent_work_requires_approval",
+      "outcome": "passed",
+      "duration_seconds": 2.1714
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_missing_output_invalidates_its_dependents",
+      "outcome": "passed",
+      "duration_seconds": 2.0113
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_missing_source_fails_bounded_retries_without_abandoning_run",
+      "outcome": "passed",
+      "duration_seconds": 0.8091
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_non_retryable_failure_and_dependency_blocking",
+      "outcome": "passed",
+      "duration_seconds": 0.9294
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_non_utf8_output_is_invalidated",
+      "outcome": "passed",
+      "duration_seconds": 1.8748
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_normal_run_cannot_repeat_existing_business_key",
+      "outcome": "passed",
+      "duration_seconds": 1.1621
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_parallel_branches_and_fan_in_barrier",
+      "outcome": "passed",
+      "duration_seconds": 1.283
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_partial_artifact_write_is_not_published_as_success",
+      "outcome": "passed",
+      "duration_seconds": 1.8801
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_pending_delivery_reference_is_repaired_without_duplicate_intent",
+      "outcome": "passed",
+      "duration_seconds": 1.6843
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_quality_threshold_failure_is_not_retryable",
+      "outcome": "passed",
+      "duration_seconds": 1.0713
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_recovery_reuses_proven_success",
+      "outcome": "passed",
+      "duration_seconds": 2.0247
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_relevant_configuration_change_invalidates_success",
+      "outcome": "passed",
+      "duration_seconds": 2.0953
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_repeated_failure_during_recovery",
+      "outcome": "passed",
+      "duration_seconds": 3.345
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_resume_requires_failed_latest_matching_business_run",
+      "outcome": "passed",
+      "duration_seconds": 1.4063
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_retry_backoff_respects_delay_and_cap",
+      "outcome": "passed",
+      "duration_seconds": 1.6556
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_retry_policy_change_preserves_unrelated_success",
+      "outcome": "passed",
+      "duration_seconds": 1.8811
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_retryable_failure",
+      "outcome": "passed",
+      "duration_seconds": 1.4798
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_run_deadline_cancels_ready_work_without_busy_loop",
+      "outcome": "passed",
+      "duration_seconds": 0.4675
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_side_effect_commit_before_failure_is_deduplicated_on_retry",
+      "outcome": "passed",
+      "duration_seconds": 1.3655
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_source_connection_limit_serializes_branches",
+      "outcome": "passed",
+      "duration_seconds": 1.2369
+    },
+    {
+      "test": "tests.test_execution.ExecutionTests.test_source_content_change_prevents_stale_skip",
+      "outcome": "passed",
+      "duration_seconds": 2.0478
+    },
+    {
+      "test": "tests.test_execution.ProcessExecutionTests.test_cli_propagates_critical_failure",
+      "outcome": "passed",
+      "duration_seconds": 5.8359
+    },
+    {
+      "test": "tests.test_execution.ProcessExecutionTests.test_crash_before_checkpoint_retries_safely",
+      "outcome": "passed",
+      "duration_seconds": 7.828
+    },
+    {
+      "test": "tests.test_execution.ProcessExecutionTests.test_real_child_process_happy_path",
+      "outcome": "passed",
+      "duration_seconds": 6.426
+    },
+    {
+      "test": "tests.test_execution.ProcessExecutionTests.test_timeout_retry_has_no_overlapping_attempts",
+      "outcome": "passed",
+      "duration_seconds": 9.7585
+    },
+    {
+      "test": "tests.test_execution.ProcessExecutionTests.test_timeout_terminates_worker_before_recovery",
+      "outcome": "passed",
+      "duration_seconds": 9.4979
+    },
+    {
+      "test": "tests.test_performance.PerformanceTests.test_barrier_mode_retains_native_wave_semantics",
+      "outcome": "passed",
+      "duration_seconds": 2.1597
+    },
+    {
+      "test": "tests.test_performance.PerformanceTests.test_child_loads_run_and_dependencies_in_one_snapshot",
+      "outcome": "passed",
+      "duration_seconds": 0.8398
+    },
+    {
+      "test": "tests.test_performance.PerformanceTests.test_delta_history_fetches_only_new_events",
+      "outcome": "passed",
+      "duration_seconds": 0.1396
+    },
+    {
+      "test": "tests.test_performance.PerformanceTests.test_descendant_traversal_visits_edges_once_on_reverse_ordered_chain",
+      "outcome": "passed",
+      "duration_seconds": 0.1823
+    },
+    {
+      "test": "tests.test_performance.PerformanceTests.test_eager_fail_fast_does_not_cancel_dispatched_ready_attempt",
+      "outcome": "passed",
+      "duration_seconds": 1.0217
+    },
+    {
+      "test": "tests.test_performance.PerformanceTests.test_eager_successor_does_not_wait_for_unrelated_branch",
+      "outcome": "passed",
+      "duration_seconds": 1.8924
+    },
+    {
+      "test": "tests.test_performance.PerformanceTests.test_incremental_history_still_rejects_sequence_gaps",
+      "outcome": "passed",
+      "duration_seconds": 0.1516
+    },
+    {
+      "test": "tests.test_performance.PerformanceTests.test_node_index_is_built_once",
+      "outcome": "passed",
+      "duration_seconds": 0.2622
+    },
+    {
+      "test": "tests.test_performance.PerformanceTests.test_preparation_window_does_not_claim_queued_nodes_early",
+      "outcome": "passed",
+      "duration_seconds": 1.4076
+    },
+    {
+      "test": "tests.test_performance.PerformanceTests.test_single_missing_source_exhausts_retries_without_scheduler_stall",
+      "outcome": "passed",
+      "duration_seconds": 0.6848
+    },
+    {
+      "test": "tests.test_spark.SparkIntegrationTests.test_python_and_spark_transformations_match_edge_cases",
+      "outcome": "passed",
+      "duration_seconds": 4.5656
+    },
+    {
+      "test": "tests.test_spark.SparkIntegrationTests.test_real_spark_data_correctness_before_and_after_restart",
+      "outcome": "passed",
+      "duration_seconds": 7.9912
+    },
+    {
+      "test": "tests.test_spark.SparkIntegrationTests.test_shared_transform_cache_is_released_on_failure",
+      "outcome": "passed",
+      "duration_seconds": 1.3407
+    }
+  ]
+}
