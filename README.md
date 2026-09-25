@@ -36,6 +36,57 @@ external file transfer. Outputs and control state are under `.runtime`.
 
 ## Architecture
 
+### Animated walkthrough
+
+Watch a failed transformation recover without repeating valid extraction work:
+
+<picture>
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/dag-poster.png">
+  <img src="docs/dag-animation.gif" alt="Recorded DAG animation: parallel extracts succeed, transformation fails, downstream work blocks, and a resumed run reuses extraction checkpoints before completing.">
+</picture>
+
+[Static image](docs/dag-poster.png) |
+[Interactive player](docs/dag-player.html) |
+[Recorded events](docs/dag-recording.json)
+
+The GIF shows **failure and resume**. The interactive player adds **happy path,
+transient retry, and timeout/resume** scenarios, with play/pause, previous/next
+event, a timeline scrubber, and speed controls. It starts paused, respects
+reduced-motion preferences, and includes an accessible node-state table.
+
+GitHub displays the GIF but does not execute HTML players inside a README.
+After cloning, open `docs/dag-player.html` directly in a browser, or serve only
+the documentation folder:
+
+```powershell
+python -m http.server 8765 --bind 127.0.0.1 --directory docs
+```
+
+Then visit <http://127.0.0.1:8765/dag-player.html>. The player is self-contained:
+no CDN, external fonts, network access, cloud credentials, or telemetry.
+
+These are **recorded local sample executions, not live production monitoring**.
+The recorder preserves committed audit-event order, verifies the sample report
+and single delivery intent, and publishes only allowlisted metadata. Playback
+is paced for readability, not representative of Spark execution time.
+
+Regenerate the views from the committed recording:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[animation]"
+.\.venv\Scripts\python.exe tools\dag_animation.py
+```
+
+Add `--record` to capture new isolated local sample runs first; this includes
+intentional failures and timeout termination, never a cloud deployment. The
+generator refuses non-reference configurations. The recorded event file,
+GIF, static image, and player are generated together in `docs`.
+
+Recording/media checks run in the regular test suite. The `playback` CI job
+also exercises the controls in Chromium; run it locally with the `browser-test`
+extra, `python -m playwright install chromium`, and
+`SPARK_DAG_BROWSER_TESTS=1` when invoking `python -m unittest tests.test_dag_player`.
+
 ### Runtime and storage
 
 The orchestrator selects one execution adapter per run. All child notebooks
@@ -154,6 +205,8 @@ before any `SKIPPED_ALREADY_SATISFIED` result.
 | `child_template.ipynb` | Contract-preserving starting point for a real converted component |
 | `job_config.json` / `job_config.schema.json` | Sidecar and strict versioned schema |
 | `dag_manifest.json` | Generated lineage, policies, edges, and deterministic plan |
+| `docs/dag-player.html` / `docs/dag-animation.gif` | Offline interactive playback and README animation |
+| `docs/dag-recording.json` / `tools/dag_animation.py` | Sanitized sample audit recording and reproducible media generator |
 | `spark_dag/` | Loader, validator, scheduler, control store, leases, adapters, artifacts, business logic |
 | `sample_data/` | Small synthetic landed snapshots, never production data |
 | `tests/` / `tools/run_tests.py` | Configuration, DAG, concurrency, recovery, adapter, and Spark checks |

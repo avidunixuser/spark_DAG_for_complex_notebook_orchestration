@@ -11,7 +11,9 @@ dependencies = ["jsonschema>=4.23,<5"]
 
 [project.optional-dependencies]
 cloud = ["azure-identity>=1.19,<2", "azure-storage-file-datalake>=12.18,<13", "databricks-sdk>=0.40,<1"]
-test = ["ruff>=0.11,<1", "nbformat>=5.10,<6"]
+test = ["ruff>=0.11,<1", "nbformat>=5.10,<6", "Pillow>=11,<13"]
+animation = ["Pillow>=11,<13"]
+browser-test = ["playwright>=1.51,<2"]
 spark-test = ["pyspark==4.0.1", "delta-spark==4.0.0"]
 
 [project.scripts]
