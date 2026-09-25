@@ -8,7 +8,7 @@ Fabric. **There is no evidence from which to reconstruct an actual DataStage
 dependency graph or certify equivalent business results.**
 
 The implementation therefore supplies a reusable runtime and an explicitly
-synthetic sales DAG. It does not invent source job names, source SQL, business
+synthetic canonical-XML warehouse receiving DAG. It does not invent source job names, source SQL, business
 rules, original restart points, original run results, or migration approval.
 Actual conversion remains pending receipt of the following artifacts.
 
@@ -34,12 +34,12 @@ These are **demonstration mappings, not claims about an original workload**.
 
 | Sample lineage / DataStage analogue | Purpose, inputs, outputs | Predecessors / trigger | Spark mapping and persistence | Semantic difference / required validation |
 |---|---|---|---|---|
-| `SAMPLE::LandedOrders` / extraction activity | Landed order snapshot -> orders artifact | Entry / success | `extract_orders`; immutable committed artifact | Extraction is separate from processing. Choose Fabric Copy/Data Factory/CDC/export tooling after source assessment; not automatic JDBC |
-| `SAMPLE::LandedCustomers` / parallel job activity | Landed customer snapshot -> customer artifact | Entry / success | `extract_customers`, parallel with orders | Source snapshot alignment and dimensional uniqueness need business approval |
-| `SAMPLE::JoinAndReject` / transformer, lookup, duplicate removal | Orders + customers -> accepted/rejected artifacts | Both extracts / AND success barrier | `transform_orders`; DataFrame join, explicit validation, two-output checkpoint | Exact duplicates collapse; conflicting keys reject. Original duplicate, partition, null, sort, and lookup rules are unknown |
+| `SAMPLE::CanonicalShipmentBatches` / extraction activity | Multiple canonical XML ASN batches -> shipment-line artifact | Entry / success | `extract_shipments`; bounded XML parsing and immutable committed artifact | Supplier ingestion/normalization is separate; not automatic JDBC or an assumed industry XML standard |
+| `SAMPLE::CanonicalProductCatalog` / parallel job activity | Multiple canonical XML product messages -> product artifact | Entry / success | `extract_products`, parallel with shipments | Source snapshot alignment, SKU uniqueness, and unit-of-measure conventions need business approval |
+| `SAMPLE::ValidateReceivingLines` / transformer, lookup, duplicate removal | Shipment lines + product master -> accepted/rejected artifacts | Both extracts / AND success barrier | `validate_shipments`; DataFrame join, explicit validation, two-output checkpoint | Exact retransmissions collapse by shipment ID + line ID; conflicting keys, unknown SKUs, bad quantities, and mismatched units reject |
 | `SAMPLE::QualityGate` / conditional/exception activity | Accepted/rejected counts -> approved reference | Transformation / success | `quality_gate`; read-only checkpoint | Default thresholds are sample-only, not inferred DataStage thresholds |
-| `SAMPLE::AggregateAndPublish` / aggregate and target stage | Approved rows -> regional report | Quality gate / success | `publish_report`; exact integer cents and immutable report version | Downstream readers consume a committed output reference, not a partially overwritten live table |
-| `SAMPLE::DeliveryOutbox` / shell delivery or notification | Report -> durable delivery intent | Publish / success and enabled parameter | `deliver_report`; business-key-deduplicated control-store outbox | No actual delivery is made. External consumer must honor the idempotency key or require manual reconciliation |
+| `SAMPLE::WarehouseReceivingPlan` / aggregate and target stage | Approved lines -> warehouse/SKU/unit receiving plan | Quality gate / success | `plan_receipts`; exact integer units and immutable plan version | Downstream readers consume a committed output reference, not partially posted inventory |
+| `SAMPLE::InventoryReceiptOutbox` / external WMS activity | Receiving plan -> durable `inventory_receipt` intent | Plan / success and enabled target | `request_receipts`; business-key/node/operation-deduplicated outbox | No WMS posting occurs. A separately implemented consumer must honor the idempotency key or require reconciliation |
 | `SAMPLE::FailureTrigger` / exception handler | Main-path states -> failure notice | All main nodes terminal / any failure or block | `notify_failure` | A handled critical failure still makes the run fail |
 | `SAMPLE::TimeoutTrigger` / timeout trigger | Main-path states -> timeout notice | All main nodes terminal / any timeout | `notify_timeout` | Unconfirmed termination quarantines the run instead of launching potentially unsafe cleanup |
 | `SAMPLE::CompletionTrigger` / after-job cleanup | Terminal branch states -> cleanup receipt | Delivery + handlers / completion | `cleanup`; read-only bookkeeping | Does not delete shared checkpoints or compensate unknown external effects |
@@ -76,7 +76,7 @@ compensation routine.
   compensation, secrets integration, and migration equivalence remain unknown.
 - Business run keys are deliberately restricted to non-sensitive ISO dates in
   this version. Extending the strategy requires validation and new tests.
-- The sample processes one complete landed snapshot per business key. It does
+- The sample processes one complete canonical XML file set per business key. It does
   not infer a partition filter, CDC watermark, or late-arrival policy.
 - Cloud paths, imported notebook IDs/names, cluster settings, networking, and
   identities are intentionally unconfigured placeholders.

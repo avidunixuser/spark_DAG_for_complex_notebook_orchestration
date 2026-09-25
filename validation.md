@@ -6,11 +6,12 @@ failure-injection subtests.
 
 | Execution environment | Result | Scope |
 |---|---|---|
-| Linux/aarch64, Python 3.12, Spark 4.0.1, Delta 4.0.0 | **131 tests passed, no skips** | Full portable suite plus real Spark transformations/recovery and native Delta transactions/output validation |
-| Windows, Python 3.13 | **123 passed, 8 explicitly skipped** | Full portable suite, real child-process termination/recovery, mocked ADLS/cloud APIs; optional Spark/Delta integration tests excluded |
+| Linux/aarch64, Python 3.12, Spark 4.0.1, Delta 4.0.0 | **155 passed, 4 browser checks explicitly skipped** | Canonical XML parsing, distributed ingestion, real Spark recovery, native Delta transactions, media, and portable runtime checks |
+| Windows, Python 3.13, Microsoft Edge | **149 passed, 10 Spark/Delta checks explicitly skipped** | Canonical XML, real child-process termination/recovery, mocked cloud APIs, generated media, and all four browser playback checks |
 
 Evidence: [test-results.json](test-results.json) and
 [test-results.windows.json](test-results.windows.json).
+Each report contains 159 discovered tests and no failures or errors.
 
 ## Failure-injection matrix
 
@@ -19,18 +20,19 @@ The named subtests in
 
 | Injected node | Observed assertions |
 |---|---|
-| `extract_orders` | Failed, remediated, reran, downstream report correct |
-| `extract_customers` | Failed, remediated, reran, downstream report correct |
-| `transform_orders` | Valid extracts reused, failed node repaired, descendants completed |
-| `quality_gate` | Valid upstream work reused, gate repaired, report completed |
-| `publish_report` | Valid upstream work reused, report recomputed correctly |
-| `deliver_report` | Repaired delivery intent, exactly one durable intent |
+| `extract_shipments` | XML ingestion failed, remediated, reran, downstream receiving plan correct |
+| `extract_products` | XML catalog ingestion failed, remediated, reran, downstream receiving plan correct |
+| `validate_shipments` | Valid extracts reused, failed node repaired, descendants completed |
+| `quality_gate` | Valid upstream work reused, gate repaired, receiving plan completed |
+| `plan_receipts` | Valid upstream work reused, warehouse/SKU/unit quantities recomputed correctly |
+| `request_receipts` | Repaired inventory-receipt intent, exactly one durable intent |
 | `notify_failure` | Repaired while its activating failure remained; full workload recovered afterward |
 | `notify_timeout` | Repaired while its activating timeout remained; full workload recovered afterward |
 | `cleanup` | Valid main-path work reused; completion bookkeeping repaired |
 
-Every recovered report had North **1500 cents / 2 orders** and South
-**2050 cents / 1 order**, with exactly one delivery intent in that scenario's
+Every recovered plan had **120 `SKU-FILTER` units for `WH-ATL` across two accepted
+shipment lines** and **60 `SKU-SEAL` units for `WH-DFW` across one line**, all in
+`EA`, with exactly one inventory-receipt intent in that scenario's
 isolated control store. Separate tests cover a crash after outbox commit,
 force-rerun deduplication, changed-payload conflicts, and repair of a pending
 intent's missing output reference.
@@ -46,6 +48,7 @@ intent's missing output reference.
 | 19-23: force modes, repeated failures, config changes, missing outputs | `test_execution.py` |
 | 24-27: collisions, side effects, blocking, complete audit | `test_control_store.py`, `test_execution.py`, `test_adapters.py` |
 | 28: data correctness across restart | `test_execution.py`, `test_spark.py` |
+| Canonical XML intake | Multi-file/recursive ingestion, namespace/version/shape checks, DTD/entity rejection, resource limits, compound keys, SKU/unit validation, malformed-file recovery |
 | Additional integrity/performance checks | Native Delta commit/version/identity tests, incremental history across writers, attempt-scoped proof reuse, source metadata fingerprints, Spark cache cleanup, clock-skew regression, capped retries, eager resource bounds, and linear graph traversal |
 
 The wheel build, configuration/DAG validation, notebook format/code validation,
@@ -62,7 +65,7 @@ The scheduling benchmark and its exact scope are documented in
 - Fabric, Databricks Jobs, and ADLS Gen2 file APIs were exercised through contract
   fakes, not authenticated live services. Native Delta tests use a test-only
   in-process lease implementation.
-- No real external delivery, receiver exactly-once guarantee, cloud identity,
+- No real WMS posting, external receiver exactly-once guarantee, cloud identity,
   networking, production capacity/SLA, or cloud failure/cancellation behavior has
   been certified.
 - The native Windows Spark attempt encountered a host/runtime Python worker

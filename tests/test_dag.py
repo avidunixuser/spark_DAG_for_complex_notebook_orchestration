@@ -7,17 +7,17 @@ from tests.support import DeploymentTest
 
 class DagValidationTests(DeploymentTest):
     def test_missing_notebook_definition(self):
-        del self.data["notebooks"]["extract_orders"]
+        del self.data["notebooks"]["extract_shipments"]
         with self.assertRaisesRegex(WorkflowError, "undefined notebook"):
             validate_dag(self.config())
 
     def test_missing_notebook_file(self):
-        (self.root / "notebooks" / "extract_orders.ipynb").unlink()
+        (self.root / "notebooks" / "extract_shipments.ipynb").unlink()
         with self.assertRaisesRegex(WorkflowError, "missing"):
             validate_dag(self.config())
 
     def test_cycle_detection(self):
-        self.node("extract_orders")["dependencies"] = ["publish_report"]
+        self.node("extract_shipments")["dependencies"] = ["plan_receipts"]
         with self.assertRaisesRegex(WorkflowError, "cycle"):
             validate_dag(self.config())
 
@@ -32,7 +32,7 @@ class DagValidationTests(DeploymentTest):
             validate_dag(self.config())
 
     def test_unreachable_nodes(self):
-        self.data["dag"]["entry_nodes"] = ["extract_orders"]
+        self.data["dag"]["entry_nodes"] = ["extract_shipments"]
         with self.assertRaisesRegex(WorkflowError, "every root"):
             validate_dag(self.config())
 
@@ -42,17 +42,19 @@ class DagValidationTests(DeploymentTest):
             self.config()
 
     def test_dependency_trigger_cannot_be_a_root(self):
-        self.node("extract_orders")["trigger"]["type"] = "any_failed"
+        self.node("extract_shipments")["trigger"]["type"] = "any_failed"
         with self.assertRaisesRegex(WorkflowError, "root"):
             validate_dag(self.config())
 
     def test_invalid_configuration_reference(self):
-        self.node("extract_orders")["parameters"]["source"] = {"$config": "sources.missing"}
+        self.node("extract_shipments")["parameters"]["source"] = {"$config": "sources.missing"}
         with self.assertRaisesRegex(WorkflowError, "reference"):
             validate_dag(self.config())
 
     def test_upstream_reference_requires_dependency(self):
-        self.node("quality_gate")["parameters"]["report"] = {"$output": "publish_report.report"}
+        self.node("quality_gate")["parameters"]["receiving_plan"] = {
+            "$output": "plan_receipts.receiving_plan"
+        }
         with self.assertRaisesRegex(WorkflowError, "dependency"):
             validate_dag(self.config())
 
@@ -65,23 +67,23 @@ class DagValidationTests(DeploymentTest):
             self.config()
 
     def test_resource_capacity_validation(self):
-        self.node("extract_orders")["resources"]["source_reads"] = 3
+        self.node("extract_shipments")["resources"]["source_reads"] = 3
         with self.assertRaisesRegex(WorkflowError, "capacity"):
             validate_dag(self.config())
 
     def test_unsupported_restart_policy(self):
-        self.node("extract_orders")["restart"]["policy"] = "trust_status_without_outputs"
+        self.node("extract_shipments")["restart"]["policy"] = "trust_status_without_outputs"
         with self.assertRaises(WorkflowError):
             self.config()
 
     def test_manual_side_effects_cannot_automatically_retry(self):
-        self.node("deliver_report")["idempotency"]["strategy"] = "manual"
+        self.node("request_receipts")["idempotency"]["strategy"] = "manual"
         with self.assertRaisesRegex(WorkflowError, "cannot retry"):
             validate_dag(self.config())
 
     def test_compensation_requires_declared_node(self):
-        self.node("deliver_report")["idempotency"]["strategy"] = "compensation"
-        self.node("deliver_report")["retry"]["max_retries"] = 0
+        self.node("request_receipts")["idempotency"]["strategy"] = "compensation"
+        self.node("request_receipts")["retry"]["max_retries"] = 0
         with self.assertRaisesRegex(WorkflowError, "compensation"):
             validate_dag(self.config())
 
@@ -89,14 +91,14 @@ class DagValidationTests(DeploymentTest):
         first = validate_dag(self.config())
         self.data["nodes"].reverse()
         self.assertEqual(validate_dag(self.config()), first)
-        self.assertLess(first.index("extract_customers"), first.index("transform_orders"))
-        self.assertLess(first.index("extract_orders"), first.index("transform_orders"))
+        self.assertLess(first.index("extract_products"), first.index("validate_shipments"))
+        self.assertLess(first.index("extract_shipments"), first.index("validate_shipments"))
         self.assertEqual(first[-1], "cleanup")
 
     def test_descendants_preserve_unrelated_branch(self):
-        changed = descendants(self.config().nodes, {"extract_orders"})
-        self.assertNotIn("extract_customers", changed)
-        self.assertIn("publish_report", changed)
+        changed = descendants(self.config().nodes, {"extract_shipments"})
+        self.assertNotIn("extract_products", changed)
+        self.assertIn("plan_receipts", changed)
         self.assertIn("notify_timeout", changed)
 
     def test_success_failure_timeout_and_completion_triggers(self):

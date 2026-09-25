@@ -40,7 +40,7 @@ environment avoids treating that host limitation as a business-logic result.
 | Requirement | Setup/validation |
 |---|---|
 | Spark and Delta | Use the platform's bundled compatible Spark/Delta versions. Do **not** install the local `spark-test` extra into a managed notebook runtime |
-| Package dependencies | Install this wheel plus `jsonschema`, `azure-identity`, `azure-storage-file-datalake`; Databricks also uses `databricks-sdk` |
+| Package dependencies | Install this wheel plus `jsonschema`, `defusedxml`, `azure-identity`, `azure-storage-file-datalake`; Databricks also uses `databricks-sdk`. XML parsing dependencies must reach Spark executors |
 | Shared release filesystem | Every child driver can read the same absolute deployment folder and sidecar |
 | Delta storage | Separate, access-controlled locations for control events, immutable outputs, and rejects; avoid using the same physical directory for any two |
 | ADLS Gen2 coordination | Existing HNS-enabled account, file system, and private coordination directory; identity can conditionally create files and acquire/renew/release file leases |
@@ -75,7 +75,11 @@ environments fail validation. Configure:
 - `storage.path` and `reject_data.path`: default to `Files/dag/artifacts` and
   `Files/dag/rejects`. Relative paths are qualified against the Lakehouse root;
   explicit canonical ABFSS locations are also supported.
-- `sources.*.path` and `snapshot_version`: specific landed Delta snapshots.
+- `sources.*.path`: frozen canonical XML directories, defaulting to
+  `Files/canonical/shipments` and `Files/canonical/products`.
+  `sources.*.xml` selects the versioned contract and file/record limits.
+  The optional Delta format instead requires an explicit `snapshot_version`
+  and the same canonical columns.
 - `locking.account_url`, `file_system`, `directory`, `credential`, and optional
   managed identity client ID. The endpoint must be HTTPS/DFS, e.g.
   `https://<account>.dfs.core.windows.net`. Precreate the file system and
@@ -84,8 +88,8 @@ environments fail validation. Configure:
 - Every node's timeout/retry/resource budget and the overall run timeout.
   The small local sample timeouts are not production sizing recommendations.
 
-For schema-enabled Fabric Lakehouses, configure paths such as
-`Tables/dbo/dag_control_events` and `Tables/dbo/orders` as appropriate.
+For schema-enabled Fabric Lakehouses, use `Tables/dbo/dag_control_events` if
+required for the control table. Canonical XML input folders remain under `Files`.
 OneLake uses the workspace as its file-system address and the Lakehouse item
 as the next path segment. Do not create or lease the workspace, item, `Files`,
 or `Tables` managed roots. If coordinating directly through a validated OneLake
@@ -93,7 +97,7 @@ endpoint, put lock files below `<lakehouse-id>/Files/<coordination-directory>`;
 certify file-lease/conditional-create behavior first. The supplied cloud examples
 use a separate ADLS Gen2 coordination directory and Lakehouse data paths.
 
-## Upgrade from schema 1.0
+## Upgrade to the canonical XML release
 
 1. Disable all old schedules and prove old orchestrators, notebooks, and external
    side effects have stopped. Changing the coordination endpoint or directory
@@ -103,35 +107,42 @@ use a separate ADLS Gen2 coordination directory and Lakehouse data paths.
 3. Use an HNS-enabled ADLS Gen2 account; replacing a hostname is not an HNS
    migration. Replace `locking.container` with `file_system`, `locking.prefix`
    with `directory`, and configure the DFS endpoint.
-4. Set `schema_version` to `1.1`, add `lakehouse.root_uri`, and configure
+4. Set `schema_version` to `1.2`, add/retain `lakehouse.root_uri`, and configure
    `runtime.scheduling`: `eager` for local/Databricks or `barrier` for Fabric.
    The loader rejects the old schema rather than silently translating it.
-5. Deploy the new immutable release and run the acceptance checklist. Changed
+5. Replace the old fixture inputs with the canonical XML contracts and deploy
+   the renamed receiving notebooks. The new reference application is
+   `reference_receiving`, DAG `receiving_dag` version `2.0`; prior application
+   history is not imported into this different business workload. Keep it for
+   audit, and do not fabricate compatible-version declarations.
+6. Deploy the new immutable release and run the acceptance checklist. Changed
    code fingerprints invalidate prior reuse proofs; non-idempotent nodes still
    require explicit approval/compensation. Resume only from a reconciled latest
    failed run, or use an explicitly authorized force mode.
 
-### Seed the synthetic Delta inputs
+Custom outbox producers now pass an explicit `operation` to `put_outbox`;
+the sample uses `inventory_receipt`. Consumers must understand
+`PENDING_DISPATCH` and validate the committed receiving-plan reference rather
+than assuming an external stock movement has occurred.
 
-After choosing **new empty sample source locations**, the following optional
-setup uses the sample CSVs. It intentionally refuses to overwrite an existing
-table:
+### Land the synthetic canonical XML inputs
 
-```python
-from spark_dag.config_loader import load_config
+Choose new, empty sample directories. Copy the four files in
+`sample_data/shipments` to the configured shipment source and the two files in
+`sample_data/products` to the product source, retaining relative names. Use the
+Fabric Lakehouse Files upload experience or an approved ADLS Gen2 file-copy
+process. The XML contract/XSD and expected plan fixture remain release assets;
+they are not source records.
 
-config = load_config(config_file="job_config.json", deployment_dir=deployment_dir,
-                     environment=environment)
-for name, source in config.data["sources"].items():
-    csv_path = str(config.root / "sample_data" / f"{name}.csv")
-    frame = spark.read.schema(source["schema"]).option("header", True).csv(csv_path)
-    frame.write.format("delta").mode("errorifexists").save(source["path"])
-```
+Complete both uploads before starting the orchestrator and keep the input set
+immutable until the run finishes. The reader consumes XML directly with bounded,
+distributed parsing; no CSV staging or Spark XML connector is required. Compare
+the result with `sample_data/expected_receiving_plan.json`.
 
-Fresh seed tables start at version 0. Confirm their actual schema/version and
-set `snapshot_version` accordingly. For a real migration, replace this step with
-the approved landing/CDC/data-movement process; do not silently overwrite source
-snapshots used by earlier runs.
+For a real migration, replace the fixture landing step with the approved
+supplier-message ingestion process. If that process materializes canonical
+Delta snapshots instead, use `format: "delta"` and a pinned `snapshot_version`
+in the sidecar; retain the shipment/product schemas and all restart proofs.
 
 ## Microsoft Fabric
 
@@ -191,12 +202,12 @@ Run each check on **both target platforms actually being released**:
 | Gate | Required evidence |
 |---|---|
 | Configuration and deployment | Every notebook finds exactly the selected sidecar; schema/fingerprint matches; missing/unconfigured assets fail before dispatch |
-| Happy path / fan-out / fan-in | Correct report/rejects, bounded concurrency, no downstream start before its barrier |
+| Happy path / fan-out / fan-in | Correct warehouse/SKU/unit receiving plan and rejects, bounded concurrency, no downstream start before its barrier |
 | Every restartable node | Inject failure; remediate; prove valid successes are reused and eligible descendants complete |
 | Timeout / cancellation | Prove child termination where supported; otherwise obtain `RECOVERY_REQUIRED`, no retry, no new unsafe dispatch |
 | Lease collision / crash | Second orchestrator cannot claim; crashed writer is not automatically replaced; recovery follows the runbook |
 | Delta control integrity | Atomic state/audit commit, monotonically ordered scope events, no duplicate claims under contention |
-| Side effects | Exactly one intent for identical content, explicit conflict for changed content, receiver deduplication proven separately |
+| Side effects | One `inventory_receipt` intent for identical content, explicit conflict for changed content; actual WMS posting/deduplication is a separate integration |
 | Version / source changes | Relevant changes invalidate proofs; irrelevant retry/logging changes do not invalidate unrelated outputs |
 | Retention and scale | Required versioned outputs survive the restart window; measured source/target caps and SLA are met |
 | Real DataStage equivalence | Golden input/output and operational behavior match the supplied original job; owner signs off |

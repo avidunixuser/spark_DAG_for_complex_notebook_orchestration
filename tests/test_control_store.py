@@ -8,7 +8,7 @@ from contextlib import redirect_stdout
 from dataclasses import replace
 from unittest.mock import Mock, patch
 
-from spark_dag.components import execute
+from spark_dag.components import PLAN_TARGET, execute
 from spark_dag.control_store import DeltaEvents, Transaction
 from spark_dag.model import CollisionError, Status, TaskFailure, WorkflowError, safe_error
 from spark_dag.telemetry import EventLogger
@@ -84,12 +84,12 @@ class ControlStoreTests(PreparedAttemptTest):
         self.assertEqual(engine.store.run(self.scope(), run["run_id"])["status"], "FAILED")
         with self.assertRaises(CollisionError):
             engine.store.finish_attempt(context, Status.FAILED)
-        self.assert_report(self.run_dag("resume", run["run_id"]))
+        self.assert_receiving_plan(self.run_dag("resume", run["run_id"]))
 
     def test_outbox_requires_current_running_claim(self):
         engine, _, context = self.prepare_attempt()
         with self.assertRaises(CollisionError):
-            engine.store.put_outbox(context, "payload", {})
+            engine.store.put_outbox(context, "payload", {}, operation="inventory_receipt")
 
     def test_audit_sequence_corruption_is_rejected(self):
         with self.assertRaisesRegex(WorkflowError, "sequence"):
@@ -117,18 +117,25 @@ class ControlStoreTests(PreparedAttemptTest):
         self.assertNotIn("person@", sink.getvalue())
         self.assertIn("INFRASTRUCTURE", sink.getvalue())
 
-    def test_report_overflow_fails_before_any_output_commit(self):
+    def test_receiving_plan_overflow_fails_before_any_output_commit(self):
         _, _, context = self.prepare_attempt()
         context = replace(
             context,
-            parameters={"target": {"group_by": "region", "amount_column": "amount_cents"}},
+            parameters={"target": PLAN_TARGET},
             upstream_outputs={"quality_gate": {"accepted": {}}},
         )
         artifacts = Mock()
         artifacts.spark = None
-        artifacts.read.return_value = [{"region": "North", "amount_cents": 999999999999999999}] * 10
+        artifacts.read.return_value = [
+            {
+                "warehouse_id": "WH-ATL",
+                "sku": "SKU-FILTER",
+                "unit_of_measure": "EA",
+                "quantity": 999999999999999999,
+            }
+        ] * 10
         with self.assertRaises(TaskFailure) as failure:
-            execute("publish_report", context, artifacts)
+            execute("plan_receipts", context, artifacts)
         self.assertEqual(failure.exception.code, "AGGREGATE_OVERFLOW")
         artifacts.write.assert_not_called()
 

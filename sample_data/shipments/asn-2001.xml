@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ShipmentBatch xmlns="urn:example:supply-chain:canonical:1" schemaVersion="1.0">
+  <ShipmentLine>
+    <shipmentId>ASN-2001</shipmentId>
+    <lineId>1</lineId>
+    <sku>SKU-SEAL</sku>
+    <warehouseId>WH-DFW</warehouseId>
+    <quantity>60</quantity>
+    <unitOfMeasure>EA</unitOfMeasure>
+  </ShipmentLine>
+</ShipmentBatch>

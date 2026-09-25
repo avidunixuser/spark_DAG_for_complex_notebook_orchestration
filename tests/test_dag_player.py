@@ -65,7 +65,7 @@ class DagPlayerBrowserTests(unittest.TestCase):
             self.seek_end()
             expect(self.page.locator("#next")).to_be_disabled()
             expect(self.page.locator("#svg-caption")).to_contain_text("Run succeeded")
-        expect(self.page.locator("#node-extract_customers")).to_have_attribute(
+        expect(self.page.locator("#node-extract_products")).to_have_attribute(
             "data-status", "SKIPPED_ALREADY_SATISFIED"
         )
         self.page.locator("#restart").click()
@@ -79,7 +79,17 @@ class DagPlayerBrowserTests(unittest.TestCase):
         self.page.set_viewport_size({"width": 390, "height": 844})
         network = []
         self.page.on("request", lambda request: network.append(request.url))
-        self.page.locator("#speed").select_option("4")
+        self.page.locator("#scenario").select_option("happy")
+        running = self.page.locator("#dag-data").evaluate(
+            "(element) => JSON.parse(element.textContent).scenarios.find(s => s.id === 'happy').frames."
+            "findIndex(frame => frame.states.validate_shipments.status === 'RUNNING')"
+        )
+        self.assertGreater(running, 0)
+        self.page.locator("#scrubber").evaluate(
+            "(element, value) => { element.value = value; element.dispatchEvent(new Event('input')); }",
+            running,
+        )
+        self.page.locator("#speed").select_option(".5")
         self.page.locator("#play").click()
         self.page.locator(".edge.flowing").first.wait_for(state="attached")
         animation = self.page.locator(".edge.flowing").first.evaluate(

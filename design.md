@@ -3,7 +3,7 @@
 ## Deployment and configuration contract
 
 `job_config.json` is the source of truth. `job_config.schema.json` uses JSON
-Schema draft 2020-12 with schema version `1.1`; malformed JSON, duplicate keys,
+Schema draft 2020-12 with schema version `1.2`; malformed JSON, duplicate keys,
 non-finite numbers, missing fields, incompatible versions, unknown environments,
 inline credential fields, and unconfigured cloud placeholders fail closed.
 
@@ -27,7 +27,8 @@ Business handlers receive only resolved parameters and upstream references.
 No notebook contains an independent copy of environment settings.
 
 Cloud locations are qualified against `lakehouse.root_uri`: control state under
-`Tables`, artifacts/rejects under `Files`, and versioned Delta sources under
+`Tables`, artifacts/rejects under `Files`, and canonical XML shipment/catalog
+inputs under `Files/canonical`. Optional versioned Delta sources can reside under
 `Tables`. Canonical ABFSS paths also allow explicitly configured external
 ADLS Gen2/Lakehouse locations. Coordination uses file-system/directory semantics
 and the ADLS Gen2 Python SDK, including conditional file creation.
@@ -187,8 +188,11 @@ checkpoint, and no explicit invalidation.
 
 Fingerprints include resolved business parameters, source snapshots, dependency
 states/output digests, Spark settings, storage destinations, component definition,
-checkpoint contract, and deployed Python/notebook contents. Local CSV sources
-are hashed; Delta inputs use table identity, explicit version, and snapshot
+checkpoint contract, and deployed Python/notebook contents. Canonical XML input
+sets are fingerprinted by membership, names, and content hashes, including
+files in subdirectories. Per-file bytes, records, and total file count are bounded;
+the same DTD/entity-safe parser runs locally and on Spark executors.
+Optional Delta inputs use table identity, explicit version, and snapshot
 schema rather than repeatedly scanning source rows. Delta data/log files must
 not be edited in place outside the transaction protocol. Retry, fault-injection, and
 logging changes do not invalidate unrelated business outputs. An actual source
@@ -221,9 +225,10 @@ reference, and the cache is cleared at each child entry. Restart/skip validation
 remains fresh, and an explicit `validate()` call always rechecks the artifact.
 Mutable local files and outbox records are never accepted through this cache.
 
-Outbox intent creation uses a stable application/DAG/business-key/node identity
+Outbox intent creation uses a stable application/DAG/business-key/node/operation identity
 and payload digest under the control mutex. An identical retry returns the same
-receipt. Different payload under the same delivery identity is a **business
+receipt. The receiving sample uses operation `inventory_receipt` and
+`PENDING_DISPATCH` state; it never posts WMS stock. Different payload under the same operation identity is a **business
 conflict**, not a silent replacement. A consumer must send the same idempotency
 key to a receiver that deduplicates; otherwise use reconciliation/approval.
 
@@ -273,9 +278,14 @@ Capacity planning must consider:
   avoid repeated full-history transfers, but the projection remains in driver
   memory; do not use an unbounded business key for years
   of reruns. Archive closed scopes and benchmark expected DAG size/retry volume.
+- Canonical XML source proofs require byte hashing, unlike pinned Delta metadata
+  proofs. Spark checks file metadata before distributed parsing and keeps bounded
+  documents on executors, not a driver-collected XML corpus. Freeze each input
+  batch, benchmark parsing/hashing cost, and consider immutable canonical Delta
+  landing for very large recurring feeds.
 - Full output validation adds I/O; producing attempts reuse completed proofs
   rather than hashing the same committed artifact again. A shared, disk-backed
-  Spark classification cache avoids recomputing the order join for accepted and
+  Spark classification cache avoids recomputing the shipment/product join for accepted and
   reject outputs and is released in `finally`, including failure paths.
 - DAG indexes are reused, descendant traversal is linear in vertices/edges,
   and topological sorting uses adjacency lists rather than repeated all-node scans.

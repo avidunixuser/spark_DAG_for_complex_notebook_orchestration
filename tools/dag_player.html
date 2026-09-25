@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="dark">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>Restartable Spark DAG - recorded playback</title>
+  <title>Warehouse receiving DAG - recorded playback</title>
   <style>
     :root { color-scheme: dark; font-family: "Segoe UI", system-ui, sans-serif; background: #080e1a; color: #e2e8f0; }
     * { box-sizing: border-box; }
@@ -60,9 +60,9 @@
 <body>
 <main>
   <div class="eyebrow">Reference architecture / executable sample</div>
-  <h1>Watch the DAG recover.</h1>
-  <p class="intro">Play back real state transitions from isolated local sample runs. Follow parallel work,
-    retries, failure handlers, and checkpoint reuse. This is an offline recording, not a connection to
+  <h1>Watch the receiving DAG recover.</h1>
+  <p class="intro">Follow canonical XML shipment batches and product catalogs through a warehouse receiving
+    workflow. Replay parallel ingestion, retries, failure handlers, and checkpoint reuse. This is an offline recording, not a connection to
     Fabric, Databricks, ADLS, or a production control store.</p>
   <div id="error" role="alert" hidden></div>
   <noscript><p>JavaScript is required for playback. Use the animated GIF or static architecture diagrams in the README instead.</p></noscript>
@@ -100,8 +100,8 @@
   <div class="notes">
     <p><strong>Presentation timing, not a benchmark</strong>
       Event order comes from committed audit records. Fixed display intervals make short transitions
-      readable and do not represent execution duration. Each scenario verifies North 1500 / South 2050
-      cents and exactly one delivery intent.</p>
+      readable and do not represent execution duration. Each scenario verifies 120 filters for WH-ATL
+      and 60 seal kits for WH-DFW, with exactly one inventory-receipt intent.</p>
     <p><strong>Failures are not hidden</strong>
       Inactive handlers become condition-skipped. Failure/resume is two physical runs separated by
       manual remediation. A timeout is retried only after the local process has stopped; uncertain

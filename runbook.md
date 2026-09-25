@@ -64,7 +64,7 @@ personal data, credentials, or incident narratives into that field.
 4. Resume using the latest failed run ID. Observe
    `SKIPPED_ALREADY_SATISFIED` only after proof validation; missing/stale outputs
    and affected descendants must execute again.
-5. Verify the final report, rejects, outbox, and critical node states. A second
+5. Verify the receiving plan, rejects, inventory-receipt outbox, and critical node states. A second
    failed recovery becomes the parent for the next recovery.
 
 Do not edit a control event to make a failed node appear successful.
@@ -143,11 +143,13 @@ detector. Never delete SQLite/WAL files or the Delta control table to bypass it.
 | `UNCONFIGURED_PLATFORM` | Replace required placeholders in the selected environment |
 | `CONFIGURATION_CHANGED`, `INPUT_CHANGED` | Stop mutable-deployment/input practices; use a new immutable release/snapshot |
 | `CLAIM_COLLISION`, lease collision | Check an active/abandoned owner; never launch a competing orchestrator |
-| `SOURCE_UNAVAILABLE` | Restore/land the declared snapshot; preserve its version and schema |
+| `SOURCE_UNAVAILABLE` | Restore/land the complete canonical XML file set, or the declared Delta snapshot |
+| `MALFORMED_XML`, `UNSAFE_XML`, `XML_ENVELOPE_MISMATCH`, `XML_STRUCTURE_MISMATCH` | Correct the source document's declared canonical structure; never enable DTD/external-entity expansion to make a feed pass |
+| `XML_FILE_TOO_LARGE`, `XML_FILE_LIMIT`, `XML_RECORD_LIMIT`, `XML_INPUT_LIMIT` | Split the producer's batch or explicitly review capacity before changing XML limits |
 | `QUALITY_GATE_FAILED`, `INVALID_DIMENSION` | Inspect restricted reject data/key rules; obtain approval for any rule change |
 | `OUTPUT_INVALID`, `UPSTREAM_OUTPUT_INVALID` | Restore or recompute invalid data; dependent successes must not be reused |
 | `APPROVAL_REQUIRED`, `COMPENSATION_REQUIRED` | Obtain explicit authorization and validate real business compensation |
-| `SIDE_EFFECT_CONFLICT` | A delivery identity already represents different content. Do not overwrite it; use an approved correction/revision process |
+| `SIDE_EFFECT_CONFLICT` | An inventory-receipt identity already represents a different plan. Do not overwrite it; use an approved correction/revision process |
 | `REMOTE_STATE_UNKNOWN`, `CANCELLATION_UNCONFIRMED`, `FABRIC_STATE_UNKNOWN` | Follow quarantine, not an automatic retry |
 | `LEASE_LOST`, `LEASE_RELEASE_FAILED` | Restore lock-service access and reconcile before another writer starts |
 | `UNEXPECTED_ERROR` | Treat as non-retryable by default; use access-controlled diagnostics and fix the component/runtime |
@@ -166,7 +168,7 @@ then enable fault injection only in that test sidecar:
 {
   "allow_fault_injection": true,
   "fault_injection": {
-    "transform_orders": {"kind": "permanent", "attempts": [1]}
+    "validate_shipments": {"kind": "permanent", "attempts": [1]}
   }
 }
 ```
@@ -174,13 +176,14 @@ then enable fault injection only in that test sidecar:
 This fragment belongs inside `runtime`; it is not a replacement for the full
 schema. Run with `--config <test-sidecar.json>`. After failure, remove the
 injection and resume the latest failed run. The two extracts should be reused,
-the transform/downstream path should execute, and the report should contain
-North 1500 / South 2050 cents with exactly one delivery intent.
+the validation/downstream path should execute, and the receiving plan should contain
+120 `SKU-FILTER` units for `WH-ATL` and 60 `SKU-SEAL` units for `WH-DFW`, with one
+`inventory_receipt` outbox record in `PENDING_DISPATCH` state.
 
 Supported injected failures: `retryable`, `permanent`, `timeout` (optional
 `delay_seconds`), `crash`, `after_output`, and `after_effect`. `crash` is allowed
 only in the local subprocess runner; never kill a shared Spark driver as a child
-fault. `after_effect` targets the sample delivery outbox, proving that a commit
+fault. `after_effect` targets the inventory-receipt outbox, proving that a commit
 before checkpoint acknowledgement does not duplicate the effect.
 
 The automated matrix injects a failure into **every restartable sample node**.

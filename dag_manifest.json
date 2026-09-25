@@ -2,42 +2,42 @@
   "schema_version": "1.0",
   "reference_only": true,
   "dag": {
-    "id": "sales_dag",
-    "version": "1.0",
+    "id": "receiving_dag",
+    "version": "2.0",
     "compatible_versions": [],
     "entry_nodes": [
-      "extract_orders",
-      "extract_customers"
+      "extract_shipments",
+      "extract_products"
     ]
   },
   "topological_plan": [
-    "extract_customers",
-    "extract_orders",
-    "transform_orders",
+    "extract_products",
+    "extract_shipments",
+    "validate_shipments",
     "quality_gate",
-    "publish_report",
-    "deliver_report",
+    "plan_receipts",
+    "request_receipts",
     "notify_failure",
     "notify_timeout",
     "cleanup"
   ],
   "nodes": [
     {
-      "id": "extract_orders",
-      "notebook": "extract_orders",
-      "original_stage": "SAMPLE::LandedOrders",
-      "description": "Read an immutable landed order snapshot; do not extract with JDBC.",
+      "id": "extract_shipments",
+      "notebook": "extract_shipments",
+      "original_stage": "SAMPLE::CanonicalShipmentBatches",
+      "description": "Read a bounded canonical XML shipment-file set and preserve shipment-line business keys.",
       "dependencies": [],
       "trigger": {
         "type": "all_success"
       },
       "parameters": {
         "source": {
-          "$config": "sources.orders"
+          "$config": "sources.shipments"
         }
       },
       "expected_outputs": [
-        "orders"
+        "shipments"
       ],
       "timeout_seconds": 30,
       "retry": {
@@ -64,10 +64,10 @@
         "output_validation": "Content digest and row count"
       },
       "checkpoint": {
-        "name": "orders_landed",
+        "name": "shipments_landed",
         "required": true
       },
-      "failure_classification": "INFRASTRUCTURE",
+      "failure_classification": "DATA_QUALITY",
       "critical": true,
       "concurrency_group": "extract",
       "resources": {
@@ -75,21 +75,21 @@
       }
     },
     {
-      "id": "extract_customers",
-      "notebook": "extract_customers",
-      "original_stage": "SAMPLE::LandedCustomers",
-      "description": "Read the customer dimension snapshot in parallel with orders.",
+      "id": "extract_products",
+      "notebook": "extract_products",
+      "original_stage": "SAMPLE::CanonicalProductCatalog",
+      "description": "Read canonical XML product catalog files in parallel with shipment ingestion.",
       "dependencies": [],
       "trigger": {
         "type": "all_success"
       },
       "parameters": {
         "source": {
-          "$config": "sources.customers"
+          "$config": "sources.products"
         }
       },
       "expected_outputs": [
-        "customers"
+        "products"
       ],
       "timeout_seconds": 30,
       "retry": {
@@ -116,10 +116,10 @@
         "output_validation": "Content digest and row count"
       },
       "checkpoint": {
-        "name": "customers_landed",
+        "name": "products_landed",
         "required": true
       },
-      "failure_classification": "INFRASTRUCTURE",
+      "failure_classification": "DATA_QUALITY",
       "critical": true,
       "concurrency_group": "extract",
       "resources": {
@@ -127,13 +127,13 @@
       }
     },
     {
-      "id": "transform_orders",
-      "notebook": "transform_orders",
-      "original_stage": "SAMPLE::JoinAndReject",
-      "description": "Fan-in; validate integer cents and keys, deduplicate exact rows, join the dimension, quarantine rejects.",
+      "id": "validate_shipments",
+      "notebook": "validate_shipments",
+      "original_stage": "SAMPLE::ValidateReceivingLines",
+      "description": "Fan-in; validate positive quantities, shipment-line keys, SKU and unit-of-measure; quarantine invalid lines.",
       "dependencies": [
-        "extract_orders",
-        "extract_customers"
+        "extract_shipments",
+        "extract_products"
       ],
       "trigger": {
         "type": "all_success"
@@ -172,7 +172,7 @@
         "output_validation": "Digest, count, and key validation"
       },
       "checkpoint": {
-        "name": "orders_transformed",
+        "name": "shipments_validated",
         "required": true
       },
       "failure_classification": "DATA_QUALITY",
@@ -186,7 +186,7 @@
       "original_stage": "SAMPLE::QualityGate",
       "description": "Enforce reject and accepted-row thresholds without dropping rejected records.",
       "dependencies": [
-        "transform_orders"
+        "validate_shipments"
       ],
       "trigger": {
         "type": "all_success"
@@ -229,10 +229,10 @@
       "resources": {}
     },
     {
-      "id": "publish_report",
-      "notebook": "publish_report",
-      "original_stage": "SAMPLE::AggregateAndPublish",
-      "description": "Aggregate exact integer cents by region and publish an immutable report version.",
+      "id": "plan_receipts",
+      "notebook": "plan_receipts",
+      "original_stage": "SAMPLE::WarehouseReceivingPlan",
+      "description": "Aggregate accepted units by warehouse, SKU and unit-of-measure into an immutable receiving plan.",
       "dependencies": [
         "quality_gate"
       ],
@@ -241,11 +241,11 @@
       },
       "parameters": {
         "target": {
-          "$config": "targets.report"
+          "$config": "targets.receiving_plan"
         }
       },
       "expected_outputs": [
-        "report"
+        "receiving_plan"
       ],
       "timeout_seconds": 30,
       "retry": {
@@ -265,14 +265,14 @@
       },
       "idempotency": {
         "strategy": "overwrite",
-        "commit_boundary": "Immutable report version and control checkpoint",
+        "commit_boundary": "Immutable receiving plan and control checkpoint",
         "partial_write": "Unreferenced attempt artifact",
-        "recovery": "Rebuild from the approved snapshot",
+        "recovery": "Rebuild from approved shipment lines",
         "duplicate_prevention": "One published checkpoint per run/node",
-        "output_validation": "Region totals and content digest"
+        "output_validation": "Warehouse/SKU/unit totals and content digest"
       },
       "checkpoint": {
-        "name": "report_committed",
+        "name": "receiving_plan_committed",
         "required": true
       },
       "failure_classification": "INFRASTRUCTURE",
@@ -283,12 +283,12 @@
       }
     },
     {
-      "id": "deliver_report",
-      "notebook": "deliver_report",
-      "original_stage": "SAMPLE::DeliveryOutbox",
-      "description": "Commit one deduplicated delivery intent, not an actual external delivery.",
+      "id": "request_receipts",
+      "notebook": "request_receipts",
+      "original_stage": "SAMPLE::InventoryReceiptOutbox",
+      "description": "Commit one deduplicated inventory-receipt intent; do not post inventory to a WMS.",
       "dependencies": [
-        "publish_report"
+        "plan_receipts"
       ],
       "trigger": {
         "type": "all_success",
@@ -299,7 +299,7 @@
       },
       "parameters": {
         "enabled": {
-          "$config": "notifications.enabled"
+          "$config": "targets.inventory_receipts.enabled"
         }
       },
       "expected_outputs": [
@@ -330,7 +330,7 @@
         "output_validation": "Validate durable receipt and payload digest"
       },
       "checkpoint": {
-        "name": "delivery_requested",
+        "name": "receipt_requested",
         "required": true
       },
       "failure_classification": "RETRYABLE_APPLICATION",
@@ -346,12 +346,12 @@
       "original_stage": "SAMPLE::FailureTrigger",
       "description": "Record a failure notification intent after all main-path nodes are terminal.",
       "dependencies": [
-        "extract_orders",
-        "extract_customers",
-        "transform_orders",
+        "extract_shipments",
+        "extract_products",
+        "validate_shipments",
         "quality_gate",
-        "publish_report",
-        "deliver_report"
+        "plan_receipts",
+        "request_receipts"
       ],
       "trigger": {
         "type": "any_failed"
@@ -397,12 +397,12 @@
       "original_stage": "SAMPLE::TimeoutTrigger",
       "description": "Record a timeout notice; never automatically unlock uncertain workers.",
       "dependencies": [
-        "extract_orders",
-        "extract_customers",
-        "transform_orders",
+        "extract_shipments",
+        "extract_products",
+        "validate_shipments",
         "quality_gate",
-        "publish_report",
-        "deliver_report"
+        "plan_receipts",
+        "request_receipts"
       ],
       "trigger": {
         "type": "any_timed_out"
@@ -448,7 +448,7 @@
       "original_stage": "SAMPLE::CompletionTrigger",
       "description": "Record end-of-run cleanup bookkeeping; do not delete checkpoints or shared data.",
       "dependencies": [
-        "deliver_report",
+        "request_receipts",
         "notify_failure",
         "notify_timeout"
       ],

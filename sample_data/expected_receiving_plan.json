@@ -1,0 +1,16 @@
+[
+  {
+    "warehouse_id": "WH-ATL",
+    "sku": "SKU-FILTER",
+    "unit_of_measure": "EA",
+    "expected_units": 120,
+    "shipment_lines": 2
+  },
+  {
+    "warehouse_id": "WH-DFW",
+    "sku": "SKU-SEAL",
+    "unit_of_measure": "EA",
+    "expected_units": 60,
+    "shipment_lines": 1
+  }
+]

@@ -1,72 +1,72 @@
 {
-  "schema_version": "1.1",
-  "configuration_version": "1.1.0",
-  "application_id": "reference_sales",
-  "application_name": "Restartable sales reference DAG",
+  "schema_version": "1.2",
+  "configuration_version": "2.0.0",
+  "application_id": "reference_receiving",
+  "application_name": "Canonical XML warehouse receiving DAG",
   "original_datastage_job": "NOT_SUPPLIED_REFERENCE_ONLY",
   "environment": "local",
-  "code_version": "0.2.0",
+  "code_version": "0.3.0",
   "dag": {
-    "id": "sales_dag", "version": "1.0", "compatible_versions": [],
-    "entry_nodes": ["extract_orders", "extract_customers"]
+    "id": "receiving_dag", "version": "2.0", "compatible_versions": [],
+    "entry_nodes": ["extract_shipments", "extract_products"]
   },
   "notebook_base_path": "notebooks",
   "notebooks": {
     "orchestrator": {"path": "orchestrator.ipynb", "component": "orchestrator", "fabric_name": "orchestrator"},
-    "extract_orders": {"path": "notebooks/extract_orders.ipynb", "component": "extract_orders", "fabric_name": "extract_orders"},
-    "extract_customers": {"path": "notebooks/extract_customers.ipynb", "component": "extract_customers", "fabric_name": "extract_customers"},
-    "transform_orders": {"path": "notebooks/transform_orders.ipynb", "component": "transform_orders", "fabric_name": "transform_orders"},
+    "extract_shipments": {"path": "notebooks/extract_shipments.ipynb", "component": "extract_shipments", "fabric_name": "extract_shipments"},
+    "extract_products": {"path": "notebooks/extract_products.ipynb", "component": "extract_products", "fabric_name": "extract_products"},
+    "validate_shipments": {"path": "notebooks/validate_shipments.ipynb", "component": "validate_shipments", "fabric_name": "validate_shipments"},
     "quality_gate": {"path": "notebooks/quality_gate.ipynb", "component": "quality_gate", "fabric_name": "quality_gate"},
-    "publish_report": {"path": "notebooks/publish_report.ipynb", "component": "publish_report", "fabric_name": "publish_report"},
-    "deliver_report": {"path": "notebooks/deliver_report.ipynb", "component": "deliver_report", "fabric_name": "deliver_report"},
+    "plan_receipts": {"path": "notebooks/plan_receipts.ipynb", "component": "plan_receipts", "fabric_name": "plan_receipts"},
+    "request_receipts": {"path": "notebooks/request_receipts.ipynb", "component": "request_receipts", "fabric_name": "request_receipts"},
     "notify_failure": {"path": "notebooks/notify_failure.ipynb", "component": "control_notice", "fabric_name": "notify_failure"},
     "notify_timeout": {"path": "notebooks/notify_timeout.ipynb", "component": "control_notice", "fabric_name": "notify_timeout"},
     "cleanup": {"path": "notebooks/cleanup.ipynb", "component": "cleanup", "fabric_name": "cleanup"}
   },
   "nodes": [
     {
-      "id": "extract_orders", "notebook": "extract_orders", "original_stage": "SAMPLE::LandedOrders",
-      "description": "Read an immutable landed order snapshot; do not extract with JDBC.",
+      "id": "extract_shipments", "notebook": "extract_shipments", "original_stage": "SAMPLE::CanonicalShipmentBatches",
+      "description": "Read a bounded canonical XML shipment-file set and preserve shipment-line business keys.",
       "dependencies": [], "trigger": {"type": "all_success"},
-      "parameters": {"source": {"$config": "sources.orders"}},
-      "expected_outputs": ["orders"], "timeout_seconds": 30,
+      "parameters": {"source": {"$config": "sources.shipments"}},
+      "expected_outputs": ["shipments"], "timeout_seconds": 30,
       "retry": {"max_retries": 1, "delay_seconds": 0.1, "backoff": 2, "max_delay_seconds": 2, "categories": ["INFRASTRUCTURE", "RETRYABLE_APPLICATION", "TIMEOUT"]},
       "restart": {"eligible": true, "policy": "reuse_valid"},
       "idempotency": {"strategy": "overwrite", "commit_boundary": "Immutable attempt artifact", "partial_write": "Unreferenced staging data", "recovery": "Read the same source snapshot", "duplicate_prevention": "Downstream uses only checkpoint references", "output_validation": "Content digest and row count"},
-      "checkpoint": {"name": "orders_landed", "required": true},
-      "failure_classification": "INFRASTRUCTURE", "critical": true,
+      "checkpoint": {"name": "shipments_landed", "required": true},
+      "failure_classification": "DATA_QUALITY", "critical": true,
       "concurrency_group": "extract", "resources": {"source_reads": 1}
     },
     {
-      "id": "extract_customers", "notebook": "extract_customers", "original_stage": "SAMPLE::LandedCustomers",
-      "description": "Read the customer dimension snapshot in parallel with orders.",
+      "id": "extract_products", "notebook": "extract_products", "original_stage": "SAMPLE::CanonicalProductCatalog",
+      "description": "Read canonical XML product catalog files in parallel with shipment ingestion.",
       "dependencies": [], "trigger": {"type": "all_success"},
-      "parameters": {"source": {"$config": "sources.customers"}},
-      "expected_outputs": ["customers"], "timeout_seconds": 30,
+      "parameters": {"source": {"$config": "sources.products"}},
+      "expected_outputs": ["products"], "timeout_seconds": 30,
       "retry": {"max_retries": 1, "delay_seconds": 0.1, "backoff": 2, "max_delay_seconds": 2, "categories": ["INFRASTRUCTURE", "RETRYABLE_APPLICATION", "TIMEOUT"]},
       "restart": {"eligible": true, "policy": "reuse_valid"},
       "idempotency": {"strategy": "overwrite", "commit_boundary": "Immutable attempt artifact", "partial_write": "Unreferenced staging data", "recovery": "Read the same source snapshot", "duplicate_prevention": "Downstream uses only checkpoint references", "output_validation": "Content digest and row count"},
-      "checkpoint": {"name": "customers_landed", "required": true},
-      "failure_classification": "INFRASTRUCTURE", "critical": true,
+      "checkpoint": {"name": "products_landed", "required": true},
+      "failure_classification": "DATA_QUALITY", "critical": true,
       "concurrency_group": "extract", "resources": {"source_reads": 1}
     },
     {
-      "id": "transform_orders", "notebook": "transform_orders", "original_stage": "SAMPLE::JoinAndReject",
-      "description": "Fan-in; validate integer cents and keys, deduplicate exact rows, join the dimension, quarantine rejects.",
-      "dependencies": ["extract_orders", "extract_customers"], "trigger": {"type": "all_success"},
+      "id": "validate_shipments", "notebook": "validate_shipments", "original_stage": "SAMPLE::ValidateReceivingLines",
+      "description": "Fan-in; validate positive quantities, shipment-line keys, SKU and unit-of-measure; quarantine invalid lines.",
+      "dependencies": ["extract_shipments", "extract_products"], "trigger": {"type": "all_success"},
       "parameters": {"rules": {"$config": "data_quality"}},
       "expected_outputs": ["accepted", "rejects"], "timeout_seconds": 30,
       "retry": {"max_retries": 1, "delay_seconds": 0.1, "backoff": 2, "max_delay_seconds": 2, "categories": ["INFRASTRUCTURE", "RETRYABLE_APPLICATION", "TIMEOUT"]},
       "restart": {"eligible": true, "policy": "reuse_valid"},
       "idempotency": {"strategy": "overwrite", "commit_boundary": "Both artifacts validated before checkpoint", "partial_write": "One artifact may exist but is not advertised", "recovery": "Recompute from immutable upstream artifacts", "duplicate_prevention": "Reject conflicting keys; collapse identical rows", "output_validation": "Digest, count, and key validation"},
-      "checkpoint": {"name": "orders_transformed", "required": true},
+      "checkpoint": {"name": "shipments_validated", "required": true},
       "failure_classification": "DATA_QUALITY", "critical": true,
       "concurrency_group": "compute", "resources": {}
     },
     {
       "id": "quality_gate", "notebook": "quality_gate", "original_stage": "SAMPLE::QualityGate",
       "description": "Enforce reject and accepted-row thresholds without dropping rejected records.",
-      "dependencies": ["transform_orders"], "trigger": {"type": "all_success"},
+      "dependencies": ["validate_shipments"], "trigger": {"type": "all_success"},
       "parameters": {"rules": {"$config": "data_quality"}},
       "expected_outputs": ["accepted"], "timeout_seconds": 30,
       "retry": {"max_retries": 0, "delay_seconds": 0, "backoff": 1, "max_delay_seconds": 0, "categories": []},
@@ -77,36 +77,36 @@
       "concurrency_group": "compute", "resources": {}
     },
     {
-      "id": "publish_report", "notebook": "publish_report", "original_stage": "SAMPLE::AggregateAndPublish",
-      "description": "Aggregate exact integer cents by region and publish an immutable report version.",
+      "id": "plan_receipts", "notebook": "plan_receipts", "original_stage": "SAMPLE::WarehouseReceivingPlan",
+      "description": "Aggregate accepted units by warehouse, SKU and unit-of-measure into an immutable receiving plan.",
       "dependencies": ["quality_gate"], "trigger": {"type": "all_success"},
-      "parameters": {"target": {"$config": "targets.report"}},
-      "expected_outputs": ["report"], "timeout_seconds": 30,
+      "parameters": {"target": {"$config": "targets.receiving_plan"}},
+      "expected_outputs": ["receiving_plan"], "timeout_seconds": 30,
       "retry": {"max_retries": 1, "delay_seconds": 0.1, "backoff": 2, "max_delay_seconds": 2, "categories": ["INFRASTRUCTURE", "RETRYABLE_APPLICATION", "TIMEOUT"]},
       "restart": {"eligible": true, "policy": "reuse_valid"},
-      "idempotency": {"strategy": "overwrite", "commit_boundary": "Immutable report version and control checkpoint", "partial_write": "Unreferenced attempt artifact", "recovery": "Rebuild from the approved snapshot", "duplicate_prevention": "One published checkpoint per run/node", "output_validation": "Region totals and content digest"},
-      "checkpoint": {"name": "report_committed", "required": true},
+      "idempotency": {"strategy": "overwrite", "commit_boundary": "Immutable receiving plan and control checkpoint", "partial_write": "Unreferenced attempt artifact", "recovery": "Rebuild from approved shipment lines", "duplicate_prevention": "One published checkpoint per run/node", "output_validation": "Warehouse/SKU/unit totals and content digest"},
+      "checkpoint": {"name": "receiving_plan_committed", "required": true},
       "failure_classification": "INFRASTRUCTURE", "critical": true,
       "concurrency_group": "publish", "resources": {"target_writes": 1}
     },
     {
-      "id": "deliver_report", "notebook": "deliver_report", "original_stage": "SAMPLE::DeliveryOutbox",
-      "description": "Commit one deduplicated delivery intent, not an actual external delivery.",
-      "dependencies": ["publish_report"],
+      "id": "request_receipts", "notebook": "request_receipts", "original_stage": "SAMPLE::InventoryReceiptOutbox",
+      "description": "Commit one deduplicated inventory-receipt intent; do not post inventory to a WMS.",
+      "dependencies": ["plan_receipts"],
       "trigger": {"type": "all_success", "condition": {"parameter": "enabled", "equals": true}},
-      "parameters": {"enabled": {"$config": "notifications.enabled"}},
+      "parameters": {"enabled": {"$config": "targets.inventory_receipts.enabled"}},
       "expected_outputs": ["receipt"], "timeout_seconds": 30,
       "retry": {"max_retries": 1, "delay_seconds": 0.1, "backoff": 2, "max_delay_seconds": 2, "categories": ["INFRASTRUCTURE", "RETRYABLE_APPLICATION", "TIMEOUT"]},
       "restart": {"eligible": true, "policy": "reuse_valid"},
       "idempotency": {"strategy": "deduplicate", "commit_boundary": "Transactional outbox event", "partial_write": "Intent may commit before the node checkpoint", "recovery": "Reuse the same business-key intent", "duplicate_prevention": "Stable key plus payload digest under the control-store lock", "output_validation": "Validate durable receipt and payload digest"},
-      "checkpoint": {"name": "delivery_requested", "required": true},
+      "checkpoint": {"name": "receipt_requested", "required": true},
       "failure_classification": "RETRYABLE_APPLICATION", "critical": true,
       "concurrency_group": "publish", "resources": {"target_writes": 1}
     },
     {
       "id": "notify_failure", "notebook": "notify_failure", "original_stage": "SAMPLE::FailureTrigger",
       "description": "Record a failure notification intent after all main-path nodes are terminal.",
-      "dependencies": ["extract_orders", "extract_customers", "transform_orders", "quality_gate", "publish_report", "deliver_report"],
+      "dependencies": ["extract_shipments", "extract_products", "validate_shipments", "quality_gate", "plan_receipts", "request_receipts"],
       "trigger": {"type": "any_failed"},
       "parameters": {"kind": "failure"},
       "expected_outputs": ["notice"], "timeout_seconds": 30,
@@ -120,7 +120,7 @@
     {
       "id": "notify_timeout", "notebook": "notify_timeout", "original_stage": "SAMPLE::TimeoutTrigger",
       "description": "Record a timeout notice; never automatically unlock uncertain workers.",
-      "dependencies": ["extract_orders", "extract_customers", "transform_orders", "quality_gate", "publish_report", "deliver_report"],
+      "dependencies": ["extract_shipments", "extract_products", "validate_shipments", "quality_gate", "plan_receipts", "request_receipts"],
       "trigger": {"type": "any_timed_out"},
       "parameters": {"kind": "timeout"},
       "expected_outputs": ["notice"], "timeout_seconds": 30,
@@ -134,7 +134,7 @@
     {
       "id": "cleanup", "notebook": "cleanup", "original_stage": "SAMPLE::CompletionTrigger",
       "description": "Record end-of-run cleanup bookkeeping; do not delete checkpoints or shared data.",
-      "dependencies": ["deliver_report", "notify_failure", "notify_timeout"], "trigger": {"type": "all_done"},
+      "dependencies": ["request_receipts", "notify_failure", "notify_timeout"], "trigger": {"type": "all_done"},
       "parameters": {}, "expected_outputs": ["receipt"], "timeout_seconds": 30,
       "retry": {"max_retries": 1, "delay_seconds": 0.1, "backoff": 2, "max_delay_seconds": 2, "categories": ["INFRASTRUCTURE", "RETRYABLE_APPLICATION", "TIMEOUT"]},
       "restart": {"eligible": true, "policy": "reuse_valid"},
@@ -153,14 +153,24 @@
   },
   "spark": {"max_concurrent_notebooks": 2, "settings": {"spark.sql.shuffle.partitions": "4", "spark.sql.session.timeZone": "UTC"}},
   "sources": {
-    "orders": {"format": "csv", "path": "sample_data/orders.csv", "schema": "order_id STRING, customer_id STRING, amount_cents STRING"},
-    "customers": {"format": "csv", "path": "sample_data/customers.csv", "schema": "customer_id STRING, region STRING"}
+    "shipments": {
+      "format": "xml", "path": "sample_data/shipments",
+      "schema": "shipment_id STRING, line_id STRING, sku STRING, warehouse_id STRING, quantity STRING, unit_of_measure STRING",
+      "xml": {"contract": "shipment_batch", "schema_version": "1.0", "max_file_bytes": 1048576, "max_records_per_file": 10000, "max_files": 1000}
+    },
+    "products": {
+      "format": "xml", "path": "sample_data/products", "schema": "sku STRING, description STRING, unit_of_measure STRING",
+      "xml": {"contract": "product_catalog", "schema_version": "1.0", "max_file_bytes": 1048576, "max_records_per_file": 10000, "max_files": 1000}
+    }
   },
-  "targets": {"report": {"group_by": "region", "amount_column": "amount_cents"}},
+  "targets": {
+    "receiving_plan": {"group_by": ["warehouse_id", "sku", "unit_of_measure"], "quantity_column": "quantity"},
+    "inventory_receipts": {"enabled": true}
+  },
   "lakehouse": {"root_uri": ""},
   "control_store": {"backend": "sqlite", "path": ".runtime/control.sqlite3"},
   "locking": {
-    "enabled": false, "account_url": "", "file_system": "dag-coordination", "directory": "reference-sales",
+    "enabled": false, "account_url": "", "file_system": "dag-coordination", "directory": "reference-receiving",
     "credential": "managed_identity", "client_id": "", "wait_seconds": 60, "lease_duration": -1
   },
   "storage": {"backend": "local", "path": ".runtime/outputs"},
@@ -170,7 +180,7 @@
   "logging": {"enabled": true, "log_business_run_key": true},
   "secret_references": {},
   "reject_data": {"path": ".runtime/rejects"},
-  "data_quality": {"max_reject_count": 2, "minimum_accepted_rows": 3, "max_amount_cents": 1000000000},
+  "data_quality": {"max_reject_count": 2, "minimum_accepted_rows": 3, "max_quantity": 1000000},
   "notifications": {"enabled": true, "delivery": "outbox", "secret_ref": null},
   "environment_overrides": {
     "local": {},
@@ -182,8 +192,8 @@
       "reject_data": {"path": "Files/dag/rejects"},
       "locking": {"enabled": true, "account_url": "https://__REQUIRED__.dfs.core.windows.net", "credential": "fabric_user"},
       "sources": {
-        "orders": {"format": "delta", "path": "Tables/orders", "snapshot_version": 0},
-        "customers": {"format": "delta", "path": "Tables/customers", "snapshot_version": 0}
+        "shipments": {"path": "Files/canonical/shipments"},
+        "products": {"path": "Files/canonical/products"}
       }
     },
     "databricks": {
@@ -195,8 +205,8 @@
       "reject_data": {"path": "Files/dag/rejects"},
       "locking": {"enabled": true, "account_url": "https://__REQUIRED__.dfs.core.windows.net", "credential": "workload_identity"},
       "sources": {
-        "orders": {"format": "delta", "path": "Tables/orders", "snapshot_version": 0},
-        "customers": {"format": "delta", "path": "Tables/customers", "snapshot_version": 0}
+        "shipments": {"path": "Files/canonical/shipments"},
+        "products": {"path": "Files/canonical/products"}
       }
     }
   },
