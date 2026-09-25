@@ -34,14 +34,99 @@ One exact duplicate is collapsed; one unknown customer and one negative amount
 are rejected. Delivery creates a deduplicated **outbox intent**, not an email or
 external file transfer. Outputs and control state are under `.runtime`.
 
-```text
-extract_customers ----+
-                     +--> transform_orders --> quality_gate --> publish_report --> deliver_report
-extract_orders -------+                                                        (conditional)
-      all main-path nodes --> notify_failure (failure only)
-      all main-path nodes --> notify_timeout (timeout only)
-      deliver_report + both notices --> cleanup (all terminal states)
+## Architecture
+
+### Runtime and storage
+
+The orchestrator selects one execution adapter per run. All child notebooks
+reload the shared configuration and use the same claim, validation, and
+checkpoint contract; local subprocesses execute the corresponding Python
+components. This view shows runtime relationships, not additional DAG nodes.
+
+```mermaid
+flowchart TB
+    config["job_config.json<br/>job_config.schema.json"]
+    validation["Shared configuration loader<br/>Orchestrator DAG validation"]
+    orchestrator["orchestrator.ipynb<br/>Dependencies, resource limits, retries, recovery"]
+
+    config --> validation --> orchestrator
+
+    subgraph adapters["Execution adapters - one per run"]
+        direction LR
+        local["Local subprocesses<br/>Eager scheduling"]
+        databricks["Databricks Jobs API<br/>Eager scheduling"]
+        fabric["Fabric runMultiple<br/>Shared Spark session and barriers"]
+    end
+
+    orchestrator --> local
+    orchestrator --> databricks
+    orchestrator --> fabric
+    local --> components["Logical DAG components<br/>Cloud notebooks or local workers"]
+    databricks --> components
+    fabric --> components
+    config -. "Reloaded by each child" .-> components
+
+    sources[("Sources<br/>Pinned Delta snapshots or local CSV")]
+    outputs[("Committed outputs and rejects<br/>Lakehouse Files or local artifacts")]
+    control[("Control store<br/>Lakehouse Delta in cloud<br/>SQLite locally")]
+    leases["ADLS Gen2 file leases<br/>Cloud coordination only"]
+    outbox["Deduplicated outbox intent<br/>No external delivery in the reference"]
+
+    sources --> components --> outputs
+    orchestrator <-->|Run state and recovery| control
+    components <-->|Attempt claims, checkpoints, outcomes| control
+    control --> outbox
+    leases -. "Exclude overlapping cloud runs" .-> orchestrator
+    leases -. "Serialize cloud control commits" .-> control
 ```
+
+### Processing DAG
+
+The nine notebook nodes below match `job_config.json`. Solid edges inside the
+main path are success dependencies; dotted edges report terminal states to
+the orchestrator's trigger evaluation.
+
+```mermaid
+flowchart TB
+    subgraph main_path["Main processing path"]
+        direction TB
+        extract_orders["extract_orders<br/>Read the orders snapshot"]
+        extract_customers["extract_customers<br/>Read the customer snapshot"]
+        transform_orders["transform_orders<br/>Join, validate, deduplicate"]
+        quality_gate["quality_gate<br/>Accepted-row and reject thresholds"]
+        publish_report["publish_report<br/>Aggregate integer cents by region"]
+        deliver_report["deliver_report<br/>Outbox intent when notifications.enabled"]
+
+        extract_orders --> transform_orders
+        extract_customers --> transform_orders
+        transform_orders --> quality_gate --> publish_report --> deliver_report
+    end
+
+    rejects[("Rejected rows<br/>Durable quarantine artifacts")]
+    terminal{"All six main-path nodes terminal<br/>Orchestrator trigger evaluation"}
+    notify_failure["notify_failure<br/>any_failed"]
+    notify_timeout["notify_timeout<br/>any_timed_out"]
+    cleanup["cleanup<br/>all_done: completion bookkeeping"]
+
+    transform_orders -->|Rejected rows| rejects
+    extract_orders -.-> terminal
+    extract_customers -.-> terminal
+    transform_orders -.-> terminal
+    quality_gate -.-> terminal
+    publish_report -.-> terminal
+    deliver_report -.-> terminal
+    terminal -->|Failure condition| notify_failure
+    terminal -->|Timeout condition| notify_timeout
+    deliver_report --> cleanup
+    notify_failure --> cleanup
+    notify_timeout --> cleanup
+```
+
+The terminal-state diamond is a logical barrier, **not another notebook**.
+Inactive notice branches become `SKIPPED_CONDITION`; cleanup waits for delivery
+and both notices to reach terminal states. An unconfirmed cloud termination
+instead stops further dispatch for operator reconciliation. Cleanup records
+bookkeeping and does not delete shared data or checkpoints.
 
 ## Recovery
 
