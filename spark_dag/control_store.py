@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import re
 import sqlite3
 import threading
 import time
@@ -572,9 +573,13 @@ class ControlStore:
         self.backend.transaction(context.scope, change)
 
     def put_outbox(
-        self, context: AttemptContext, payload_digest: str, reference: dict[str, Any]
+        self, context: AttemptContext, payload_digest: str, reference: dict[str, Any], *, operation: str
     ) -> dict[str, Any]:
-        effect_id = fingerprint({"scope": context.scope, "node": context.node_id, "effect": "delivery"})
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", operation):
+            raise WorkflowError(
+                "INVALID_OPERATION", "Outbox operations must use a non-sensitive operation identifier."
+            )
+        effect_id = fingerprint({"scope": context.scope, "node": context.node_id, "operation": operation})
 
         def change(tx: Transaction) -> dict[str, Any]:
             self._running(tx, context.run_id)
@@ -585,7 +590,7 @@ class ControlStore:
             if existing and existing["payload_digest"] != payload_digest:
                 raise WorkflowError(
                     "SIDE_EFFECT_CONFLICT",
-                    "A business-key delivery already exists for different content.",
+                    "A business-key outbox operation already exists for different content.",
                     Category.BUSINESS,
                 )
             if existing is None:
@@ -597,14 +602,15 @@ class ControlStore:
                         "scope": context.scope,
                         "run_id": context.run_id,
                         "node_id": context.node_id,
+                        "operation": operation,
                         "payload_digest": payload_digest,
                         "output_reference": reference,
-                        "status": "PENDING_DELIVERY",
+                        "status": "PENDING_DISPATCH",
                         "created_at": utc_now(),
                     },
                     "OUTBOX_COMMITTED",
                 )
-            elif existing["status"] == "PENDING_DELIVERY" and existing["output_reference"] != reference:
+            elif existing["status"] == "PENDING_DISPATCH" and existing["output_reference"] != reference:
                 existing.update(output_reference=reference, last_reference_run_id=context.run_id)
                 tx.put("outbox", effect_id, existing, "OUTBOX_REFERENCE_REFRESHED")
             return {

@@ -3,8 +3,8 @@
 ## Measured scheduling behavior
 
 `tools/benchmark_dag.py` compares **the same current runtime** in barrier and
-eager modes, with identical synthetic data, two child slots, resource limits,
-output validation, and one deduplicated delivery intent. It adds an independent
+eager modes, with identical canonical XML shipment/product inputs, two child
+slots, resource limits, output validation, and one inventory-receipt intent. It adds an independent
 successor to the fast extraction branch and gives the slow branch and successor
 0.5 seconds of synthetic work each.
 
@@ -12,13 +12,13 @@ The three-repeat local measurement for the current runtime was:
 
 | Scheduling | Median elapsed time |
 |---|---:|
-| Barrier | 1.9357 seconds |
-| Eager | 1.3180 seconds |
+| Barrier | 2.3692 seconds |
+| Eager | 1.9302 seconds |
 
-That is approximately **32% less elapsed time**, or **1.47x speedup**, for this
+That is approximately **18.5% less elapsed time**, or **1.23x speedup**, for this
 small scenario. Eager mode started the fast branch's successor before the
 unrelated slow branch finished; barrier mode did not. Every run produced the
-same report and exactly one delivery intent. The full observations, runtime,
+same receiving plan and exactly one inventory-receipt intent. The full observations, runtime,
 fingerprints, and synthetic delays are in [performance-results.json](performance-results.json).
 
 These are **local scheduling measurements**, not a Fabric/Databricks throughput
@@ -40,7 +40,8 @@ identity, Spark capacity, and storage contention still require cloud benchmarks.
 | Child state reads | Run and all dependency records come from one consistent snapshot instead of one read per dependency |
 | Restart checks / summary | Historical attempted-node membership is loaded once; summaries derive outcomes and durations from one snapshot |
 | Control history | Delta reads only events after the current sequence watermark; committed events are cached with continuity checks and refreshed for other writers |
-| Source fingerprints | Versioned Delta inputs use table ID, pinned version, and schema; no full source-data hash is needed during planning or pre/post input checks |
+| Canonical XML | File count and byte limits are checked before distributed parsing; documents are parsed on executors rather than collected on the driver |
+| Source fingerprints | XML inputs hash names, membership, and content for strong restart proofs; optional pinned Delta inputs retain metadata-only fingerprints |
 | Output proofs | A child reuses its completed pinned-version proof for reads/final checkpoint; fresh reuse/explicit validation remains available |
 | Spark transformations | Accepted/reject branches share a `MEMORY_AND_DISK` classification cache; it is unpersisted on both success and exception |
 | Graph algorithms | Cached node index, adjacency-based topological sorting, and linear descendant traversal; a reverse-ordered 5,000-node chain visits each dependency list once |
@@ -64,9 +65,16 @@ configured directory. Infinite leases and ambiguous-write quarantine are
 unchanged. Coordination is not removed to improve benchmark numbers.
 
 Control events and immutable artifacts are Delta data in the Lakehouse.
-Versioned sources, output retention, and append-only control history are
+Frozen XML batches (or pinned Delta sources), output retention, and append-only control history are
 prerequisites for the optimizations. Do not modify underlying Delta files,
 rewrite control events, or vacuum versions needed by active/recoverable runs.
+
+XML fingerprinting deliberately reads source bytes before/after processing to
+detect input-set changes. This is not free and is not replaced by a timestamp-only
+shortcut. Measure file sizes/counts and parser/hash throughput on real feeds.
+For recurring high-volume ingestion, canonicalize supplier messages into immutable
+Delta snapshots in a separately governed landing activity while retaining the
+same shipment-line and product contracts.
 
 For deployment sizing, measure actual source volumes and skew, Spark driver
 memory, spill, notebook startup/queue time, control-transaction latency, ADLS

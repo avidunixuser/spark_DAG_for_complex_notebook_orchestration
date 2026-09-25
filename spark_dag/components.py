@@ -6,119 +6,150 @@ from contextlib import contextmanager
 from typing import Any
 
 from .artifacts import ArtifactIO
+from .canonical_xml import PRODUCT_SCHEMA, SHIPMENT_SCHEMA
 from .model import AttemptContext, Category, ProcessingResult, TaskFailure, WorkflowError
 
-ORDER_SCHEMA = "order_id STRING, customer_id STRING, amount_cents STRING"
-CUSTOMER_SCHEMA = "customer_id STRING, region STRING"
-ACCEPTED_SCHEMA = "order_id STRING, customer_id STRING, amount_cents LONG, region STRING"
-REJECT_SCHEMA = "order_id STRING, customer_id STRING, amount_cents STRING, reason STRING"
-REPORT_SCHEMA = "region STRING, total_cents LONG, order_count LONG"
+ACCEPTED_SCHEMA = SHIPMENT_SCHEMA.replace("quantity STRING", "quantity LONG")
+REJECT_SCHEMA = SHIPMENT_SCHEMA + ", reason STRING"
+PLAN_GROUPS = ("warehouse_id", "sku", "unit_of_measure")
+PLAN_SCHEMA = (
+    "warehouse_id STRING, sku STRING, unit_of_measure STRING, expected_units LONG, shipment_lines LONG"
+)
+PLAN_TARGET = {"group_by": list(PLAN_GROUPS), "quantity_column": "quantity"}
+
+
+def _missing(value: str | None) -> bool:
+    return value is None or not value.strip()
 
 
 def transform_python(
-    orders: list[dict[str, Any]],
-    customers: list[dict[str, Any]],
+    shipments: list[dict[str, Any]],
+    products: list[dict[str, Any]],
     maximum: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     dimension: dict[str, str] = {}
-    for row in customers:
-        key, region = row["customer_id"], row["region"]
-        if not key or not region or key in dimension:
+    for row in products:
+        sku = row["sku"]
+        if any(_missing(row[key]) for key in ("sku", "description", "unit_of_measure")) or sku in dimension:
             raise TaskFailure(
-                "INVALID_DIMENSION", "Customer keys must be unique and nonempty.", Category.DATA_QUALITY
+                "INVALID_DIMENSION",
+                "Product records require unique SKUs and nonempty fields.",
+                Category.DATA_QUALITY,
             )
-        dimension[key] = region
-    by_key: dict[str | None, set[tuple[Any, ...]]] = defaultdict(set)
-    for row in orders:
-        by_key[row["order_id"]].add((row["customer_id"], row["amount_cents"]))
+        dimension[sku] = row["unit_of_measure"]
+    by_key: dict[tuple[str | None, str | None], set[tuple[Any, ...]]] = defaultdict(set)
+    for row in shipments:
+        by_key[(row["shipment_id"], row["line_id"])].add(
+            (row["sku"], row["warehouse_id"], row["quantity"], row["unit_of_measure"])
+        )
     accepted, rejected = [], []
-    for key, versions in by_key.items():
-        for customer, raw in sorted(versions, key=lambda pair: (str(pair[0]), str(pair[1]))):
+    for (shipment_id, line_id), versions in by_key.items():
+        for sku, warehouse, raw, unit in sorted(
+            versions, key=lambda values: tuple(str(value) for value in values)
+        ):
             reason = None
-            if not key:
-                reason = "missing_order_key"
+            if _missing(shipment_id) or _missing(line_id):
+                reason = "missing_shipment_key"
             elif len(versions) != 1:
-                reason = "conflicting_order_key"
-            elif not raw or not raw.isascii() or not raw.isdecimal() or len(raw) > 18 or int(raw) > maximum:
-                reason = "invalid_amount"
-            elif customer not in dimension:
-                reason = "unknown_customer"
+                reason = "conflicting_shipment_key"
+            elif (
+                not raw
+                or not raw.isascii()
+                or not raw.isdecimal()
+                or len(raw) > 18
+                or not 0 < int(raw) <= maximum
+            ):
+                reason = "invalid_quantity"
+            elif sku not in dimension:
+                reason = "unknown_sku"
+            elif _missing(warehouse):
+                reason = "missing_warehouse"
+            elif unit != dimension[sku]:
+                reason = "unit_mismatch"
+            row = {
+                "shipment_id": shipment_id,
+                "line_id": line_id,
+                "sku": sku,
+                "warehouse_id": warehouse,
+                "quantity": raw,
+                "unit_of_measure": unit,
+            }
             if reason:
-                rejected.append(
-                    {"order_id": key, "customer_id": customer, "amount_cents": raw, "reason": reason}
-                )
+                rejected.append({**row, "reason": reason})
             else:
-                accepted.append(
-                    {
-                        "order_id": key,
-                        "customer_id": customer,
-                        "amount_cents": int(raw),
-                        "region": dimension[customer],
-                    }
-                )
+                accepted.append({**row, "quantity": int(raw)})
     return accepted, rejected
 
 
-def _classify_spark(orders: Any, customers: Any, maximum: int) -> Any:
+def _classify_spark(shipments: Any, products: Any, maximum: int) -> Any:
     from pyspark.sql import Window
     from pyspark.sql import functions as F
 
-    missing = (
-        F.col("customer_id").isNull()
-        | (F.col("customer_id") == "")
-        | F.col("region").isNull()
-        | (F.col("region") == "")
-    )
-    dimension = customers.agg(
+    def missing(name: str) -> Any:
+        return F.col(name).isNull() | (F.trim(F.col(name)) == "")
+
+    invalid_product = missing("sku") | missing("description") | missing("unit_of_measure")
+    dimension = products.agg(
         F.count("*").alias("rows"),
-        F.countDistinct("customer_id").alias("keys"),
-        F.sum(F.when(missing, 1).otherwise(0)).alias("invalid"),
+        F.countDistinct("sku").alias("keys"),
+        F.sum(F.when(invalid_product, 1).otherwise(0)).alias("invalid"),
     ).first()
     if dimension["rows"] != dimension["keys"] or dimension["invalid"]:
         raise TaskFailure(
-            "INVALID_DIMENSION", "Customer keys must be unique and nonempty.", Category.DATA_QUALITY
+            "INVALID_DIMENSION",
+            "Product records require unique SKUs and nonempty fields.",
+            Category.DATA_QUALITY,
         )
-    distinct = orders.dropDuplicates(["order_id", "customer_id", "amount_cents"])
-    distinct = distinct.withColumn("_versions", F.count("*").over(Window.partitionBy("order_id")))
-    joined = distinct.join(customers, "customer_id", "left")
-    amount_is_digits = F.coalesce(F.col("amount_cents").rlike("^[0-9]{1,18}$"), F.lit(False))
-    amount = F.when(amount_is_digits, F.col("amount_cents").cast("long"))
-    reason = (
-        F.when(F.col("order_id").isNull() | (F.col("order_id") == ""), F.lit("missing_order_key"))
-        .when(F.col("_versions") != 1, F.lit("conflicting_order_key"))
-        .when(~amount_is_digits | (amount > maximum), F.lit("invalid_amount"))
-        .when(F.col("region").isNull(), F.lit("unknown_customer"))
+    distinct = shipments.dropDuplicates(shipments.columns).withColumn(
+        "_versions",
+        F.count("*").over(Window.partitionBy("shipment_id", "line_id")),
     )
-    return joined.withColumn("_amount_cents", amount).withColumn("reason", reason).drop("_versions")
+    catalog = products.select("sku", F.col("unit_of_measure").alias("_product_unit"))
+    joined = distinct.join(catalog, "sku", "left")
+    digits = F.coalesce(F.col("quantity").rlike("^[0-9]{1,18}$"), F.lit(False))
+    quantity = F.when(digits, F.col("quantity").cast("long"))
+    reason = (
+        F.when(missing("shipment_id") | missing("line_id"), F.lit("missing_shipment_key"))
+        .when(F.col("_versions") != 1, F.lit("conflicting_shipment_key"))
+        .when(~digits | (quantity <= 0) | (quantity > maximum), F.lit("invalid_quantity"))
+        .when(F.col("_product_unit").isNull(), F.lit("unknown_sku"))
+        .when(missing("warehouse_id"), F.lit("missing_warehouse"))
+        .when(
+            F.col("unit_of_measure").isNull() | (F.col("unit_of_measure") != F.col("_product_unit")),
+            F.lit("unit_mismatch"),
+        )
+    )
+    return joined.withColumn("_parsed_quantity", quantity).withColumn("reason", reason).drop("_versions")
 
 
 def _transform_outputs(classified: Any) -> tuple[Any, Any]:
     from pyspark.sql import functions as F
 
-    rejected = classified.where("reason IS NOT NULL").select(
-        "order_id", "customer_id", "amount_cents", "reason"
-    )
+    columns = ("shipment_id", "line_id", "sku", "warehouse_id", "quantity", "unit_of_measure")
+    rejected = classified.where("reason IS NOT NULL").select(*columns, "reason")
     accepted = classified.where("reason IS NULL").select(
-        "order_id",
-        "customer_id",
-        F.col("_amount_cents").alias("amount_cents"),
-        "region",
+        *[
+            F.col("_parsed_quantity").alias("quantity") if name == "quantity" else F.col(name)
+            for name in columns
+        ],
     )
     return accepted, rejected
 
 
-def transform_spark(orders: Any, customers: Any, maximum: int) -> tuple[Any, Any]:
-    return _transform_outputs(_classify_spark(orders, customers, maximum))
+def transform_spark(shipments: Any, products: Any, maximum: int) -> tuple[Any, Any]:
+    return _transform_outputs(_classify_spark(shipments, products, maximum))
 
 
 @contextmanager
-def _transformed(orders: Any, customers: Any, maximum: int, *, use_spark: bool) -> Iterator[tuple[Any, Any]]:
+def _transformed(
+    shipments: Any, products: Any, maximum: int, *, use_spark: bool
+) -> Iterator[tuple[Any, Any]]:
     if not use_spark:
-        yield transform_python(orders, customers, maximum)
+        yield transform_python(shipments, products, maximum)
         return
     from pyspark import StorageLevel
 
-    classified = _classify_spark(orders, customers, maximum).persist(StorageLevel.MEMORY_AND_DISK)
+    classified = _classify_spark(shipments, products, maximum).persist(StorageLevel.MEMORY_AND_DISK)
     try:
         yield _transform_outputs(classified)
     finally:
@@ -133,15 +164,15 @@ def _source(context: AttemptContext, artifacts: ArtifactIO, name: str, schema: s
 
 def execute(component: str, context: AttemptContext, artifacts: ArtifactIO) -> ProcessingResult:
     upstream = context.upstream_outputs
-    if component == "extract_orders":
-        return _source(context, artifacts, "orders", ORDER_SCHEMA)
-    if component == "extract_customers":
-        return _source(context, artifacts, "customers", CUSTOMER_SCHEMA)
-    if component == "transform_orders":
-        orders = artifacts.read(upstream["extract_orders"]["orders"])
-        customers = artifacts.read(upstream["extract_customers"]["customers"])
-        maximum = context.parameters["rules"]["max_amount_cents"]
-        with _transformed(orders, customers, maximum, use_spark=artifacts.spark is not None) as (
+    if component == "extract_shipments":
+        return _source(context, artifacts, "shipments", SHIPMENT_SCHEMA)
+    if component == "extract_products":
+        return _source(context, artifacts, "products", PRODUCT_SCHEMA)
+    if component == "validate_shipments":
+        shipments = artifacts.read(upstream["extract_shipments"]["shipments"])
+        products = artifacts.read(upstream["extract_products"]["products"])
+        maximum = context.parameters["rules"]["max_quantity"]
+        with _transformed(shipments, products, maximum, use_spark=artifacts.spark is not None) as (
             accepted,
             rejects,
         ):
@@ -154,56 +185,61 @@ def execute(component: str, context: AttemptContext, artifacts: ArtifactIO) -> P
             warning_count=int(bad["row_count"] > 0),
         )
     if component == "quality_gate":
-        good, bad = upstream["transform_orders"]["accepted"], upstream["transform_orders"]["rejects"]
+        good, bad = upstream["validate_shipments"]["accepted"], upstream["validate_shipments"]["rejects"]
         rules = context.parameters["rules"]
         if bad["row_count"] > rules["max_reject_count"] or good["row_count"] < rules["minimum_accepted_rows"]:
             raise TaskFailure(
                 "QUALITY_GATE_FAILED", "The configured data-quality threshold failed.", Category.DATA_QUALITY
             )
         return ProcessingResult(
-            {"accepted": good}, row_counts={"accepted": good["row_count"]}, reject_count=bad["row_count"]
+            {"accepted": good},
+            row_counts={"accepted": good["row_count"]},
+            reject_count=bad["row_count"],
         )
-    if component == "publish_report":
-        target = context.parameters["target"]
-        if target != {"group_by": "region", "amount_column": "amount_cents"}:
+    if component == "plan_receipts":
+        if context.parameters["target"] != PLAN_TARGET:
             raise WorkflowError(
-                "UNSUPPORTED_SAMPLE_TARGET", "The sample report requires region and integer amount_cents."
+                "UNSUPPORTED_SAMPLE_TARGET", "Receiving plans group warehouse, SKU, and unit of measure."
             )
         accepted = artifacts.read(upstream["quality_gate"]["accepted"])
         if artifacts.spark is not None:
             from pyspark.sql import functions as F
 
-            report = accepted.groupBy("region").agg(
-                F.sum(F.col("amount_cents").cast("decimal(38,0)")).alias("total_cents"),
-                F.count("*").alias("order_count"),
+            plan = accepted.groupBy(*PLAN_GROUPS).agg(
+                F.sum(F.col("quantity").cast("decimal(38,0)")).alias("expected_units"),
+                F.count("*").alias("shipment_lines"),
             )
-            if report.where(F.col("total_cents") > 9223372036854775807).limit(1).count():
+            if plan.where(F.col("expected_units") > 9223372036854775807).limit(1).count():
                 raise TaskFailure(
                     "AGGREGATE_OVERFLOW",
-                    "The report exceeds its signed 64-bit cents contract.",
+                    "The receiving plan exceeds its signed 64-bit units contract.",
                     Category.DATA_QUALITY,
                 )
-            report = report.withColumn("total_cents", F.col("total_cents").cast("long"))
+            plan = plan.withColumn("expected_units", F.col("expected_units").cast("long"))
         else:
-            totals: dict[str, dict[str, Any]] = {}
+            totals: dict[tuple[str, ...], dict[str, Any]] = {}
             for row in accepted:
+                key = tuple(row[name] for name in PLAN_GROUPS)
                 entry = totals.setdefault(
-                    row["region"], {"region": row["region"], "total_cents": 0, "order_count": 0}
+                    key,
+                    {**{name: row[name] for name in PLAN_GROUPS}, "expected_units": 0, "shipment_lines": 0},
                 )
-                entry["total_cents"] += row["amount_cents"]
-                entry["order_count"] += 1
-                if entry["total_cents"] > 9223372036854775807:
+                entry["expected_units"] += row["quantity"]
+                entry["shipment_lines"] += 1
+                if entry["expected_units"] > 9223372036854775807:
                     raise TaskFailure(
                         "AGGREGATE_OVERFLOW",
-                        "The report exceeds its signed 64-bit cents contract.",
+                        "The receiving plan exceeds its signed 64-bit units contract.",
                         Category.DATA_QUALITY,
                     )
-            report = list(totals.values())
-        reference = artifacts.write(context, "report", report, REPORT_SCHEMA)
-        return ProcessingResult({"report": reference}, row_counts={"report": reference["row_count"]})
-    if component == "deliver_report":
-        report = upstream["publish_report"]["report"]
-        receipt = artifacts.store.put_outbox(context, report["digest"], report)
+            plan = list(totals.values())
+        reference = artifacts.write(context, "receiving_plan", plan, PLAN_SCHEMA)
+        return ProcessingResult(
+            {"receiving_plan": reference}, row_counts={"receiving_plan": reference["row_count"]}
+        )
+    if component == "request_receipts":
+        plan = upstream["plan_receipts"]["receiving_plan"]
+        receipt = artifacts.store.put_outbox(context, plan["digest"], plan, operation="inventory_receipt")
         fault = artifacts.config.data["runtime"]["fault_injection"].get(context.node_id, {})
         if fault.get("kind") == "after_effect" and context.attempt in fault["attempts"]:
             raise TaskFailure(
@@ -212,14 +248,9 @@ def execute(component: str, context: AttemptContext, artifacts: ArtifactIO) -> P
                 Category.RETRYABLE_APPLICATION,
                 retryable=True,
             )
-        return ProcessingResult({"receipt": receipt}, metrics={"delivery_intents": 1})
+        return ProcessingResult({"receipt": receipt}, metrics={"receipt_intents": 1})
     if component == "control_notice":
-        reference = artifacts.write(
-            context,
-            "notice",
-            [{"kind": context.parameters["kind"]}],
-            "kind STRING",
-        )
+        reference = artifacts.write(context, "notice", [{"kind": context.parameters["kind"]}], "kind STRING")
         return ProcessingResult({"notice": reference})
     if component == "cleanup":
         reference = artifacts.write(context, "receipt", [{"completed": True}], "completed BOOLEAN")
@@ -230,12 +261,12 @@ def execute(component: str, context: AttemptContext, artifacts: ArtifactIO) -> P
 
 
 COMPONENTS = {
-    "extract_orders",
-    "extract_customers",
-    "transform_orders",
+    "extract_shipments",
+    "extract_products",
+    "validate_shipments",
     "quality_gate",
-    "publish_report",
-    "deliver_report",
+    "plan_receipts",
+    "request_receipts",
     "control_notice",
     "cleanup",
 }

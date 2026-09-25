@@ -47,8 +47,13 @@ class AnimationTests(unittest.TestCase):
         for scenario in self.recording["scenarios"]:
             with self.subTest(scenario=scenario["id"]):
                 self.assertEqual(scenario["final_status"], "SUCCEEDED")
-                self.assertEqual(scenario["verified"]["delivery_intents"], 1)
-                self.assertEqual(sum(row["total_cents"] for row in scenario["verified"]["report"]), 3550)
+                self.assertEqual(scenario["verified"]["receipt_intents"], 1)
+                self.assertEqual(
+                    scenario["verified"]["receiving_plan"],
+                    json.loads(
+                        (ROOT / "sample_data" / "expected_receiving_plan.json").read_text(encoding="utf-8")
+                    ),
+                )
                 frames = timeline(scenario, self.recording["nodes"])
                 self.assertEqual(frames[-1]["run_status"], "SUCCEEDED")
                 for frame in frames:

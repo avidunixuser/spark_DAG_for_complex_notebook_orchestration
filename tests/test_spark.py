@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+import copy
 import os
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
+from spark_dag.artifacts import ArtifactIO
 from spark_dag.components import (
-    CUSTOMER_SCHEMA,
-    ORDER_SCHEMA,
+    PRODUCT_SCHEMA,
+    SHIPMENT_SCHEMA,
     _transformed,
     transform_python,
     transform_spark,
 )
-from spark_dag.model import Status, canonical
+from spark_dag.model import Category, Status, TaskFailure, canonical
 from spark_dag.worker import ChildFailed, run_child
-from tests.support import DeploymentTest
+from tests.support import DeploymentTest, product, shipment, write_xml
 
 
 @unittest.skipUnless(
@@ -71,39 +73,44 @@ class SparkIntegrationTests(DeploymentTest):
         for node in self.data["nodes"]:
             node["timeout_seconds"] = 180
         self.data["runtime"]["run_timeout_seconds"] = 600
-        self.fault("publish_report")
+        self.fault("plan_receipts")
         first = self.run_dag()
-        self.assertEqual(first["nodes"]["transform_orders"]["status"], Status.SUCCEEDED)
-        self.assertEqual(first["nodes"]["publish_report"]["status"], Status.FAILED)
+        self.assertEqual(first["nodes"]["validate_shipments"]["status"], Status.SUCCEEDED)
+        self.assertEqual(first["nodes"]["plan_receipts"]["status"], Status.FAILED)
         self.data["runtime"]["fault_injection"].clear()
         second = self.run_dag("resume", first["run_id"])
-        self.assert_report(second)
-        self.assertEqual(second["nodes"]["extract_orders"]["status"], Status.SKIPPED_ALREADY_SATISFIED)
-        self.assertEqual(second["nodes"]["transform_orders"]["status"], Status.SKIPPED_ALREADY_SATISFIED)
+        self.assert_receiving_plan(second)
+        self.assertEqual(second["nodes"]["extract_shipments"]["status"], Status.SKIPPED_ALREADY_SATISFIED)
+        self.assertEqual(second["nodes"]["validate_shipments"]["status"], Status.SKIPPED_ALREADY_SATISFIED)
         third = self.run_dag("force_rerun")
-        self.assert_report(third)
+        self.assert_receiving_plan(third)
 
     def test_python_and_spark_transformations_match_edge_cases(self):
-        orders = [
-            {"order_id": "a", "customer_id": "c1", "amount_cents": "001"},
-            {"order_id": "a", "customer_id": "c1", "amount_cents": "001"},
-            {"order_id": "b", "customer_id": "c1", "amount_cents": "2"},
-            {"order_id": "b", "customer_id": "c1", "amount_cents": "3"},
-            {"order_id": "c", "customer_id": "missing", "amount_cents": "5"},
-            {"order_id": "d", "customer_id": "c1", "amount_cents": None},
-            {"order_id": "e", "customer_id": "c1", "amount_cents": "-1"},
-            {"order_id": None, "customer_id": "c1", "amount_cents": "5"},
-            {"order_id": "", "customer_id": "c1", "amount_cents": "5"},
-            {"order_id": "f", "customer_id": None, "amount_cents": "5"},
-            {"order_id": "g", "customer_id": "c1", "amount_cents": "999999999999999999999999"},
-            {"order_id": "h", "customer_id": "c1", "amount_cents": "0"},
-            {"order_id": "i", "customer_id": "c1", "amount_cents": " 12"},
+        shipments = [
+            shipment(shipment_id="ASN-A", quantity="001"),
+            shipment(shipment_id="ASN-A", quantity="001"),
+            shipment(shipment_id="ASN-A", line_id="2", quantity="4"),
+            shipment(shipment_id="ASN-B", quantity="2"),
+            shipment(shipment_id="ASN-B", quantity="3"),
+            shipment(shipment_id="ASN-C", sku="SKU-UNKNOWN", quantity="5"),
+            shipment(shipment_id="ASN-D", quantity=None),
+            shipment(shipment_id="ASN-E", quantity="-1"),
+            shipment(shipment_id=None, quantity="5"),
+            shipment(shipment_id="", quantity="5"),
+            shipment(shipment_id="ASN-F", sku=None, quantity="5"),
+            shipment(shipment_id="ASN-G", quantity="999999999999999999999999"),
+            shipment(shipment_id="ASN-H", quantity="0"),
+            shipment(shipment_id="ASN-I", quantity=" 12"),
+            shipment(shipment_id="ASN-J", line_id=""),
+            shipment(shipment_id="ASN-K", warehouse_id=" "),
+            shipment(shipment_id="ASN-L", unit_of_measure="CASE"),
+            shipment(shipment_id="ASN-M", unit_of_measure=None),
         ]
-        customers = [{"customer_id": "c1", "region": "North"}]
-        expected = transform_python(orders, customers, 1000)
+        products = [product()]
+        expected = transform_python(shipments, products, 1000)
         actual = transform_spark(
-            self.spark.createDataFrame(orders, ORDER_SCHEMA),
-            self.spark.createDataFrame(customers, CUSTOMER_SCHEMA),
+            self.spark.createDataFrame(shipments, SHIPMENT_SCHEMA),
+            self.spark.createDataFrame(products, PRODUCT_SCHEMA),
             1000,
         )
         for python_rows, frame in zip(expected, actual, strict=True):
@@ -115,16 +122,39 @@ class SparkIntegrationTests(DeploymentTest):
     def test_shared_transform_cache_is_released_on_failure(self):
         from spark_dag.components import _classify_spark
 
-        orders = self.spark.createDataFrame(
-            [{"order_id": "a", "customer_id": "c1", "amount_cents": "1"}], ORDER_SCHEMA
-        )
-        customers = self.spark.createDataFrame([{"customer_id": "c1", "region": "North"}], CUSTOMER_SCHEMA)
-        classified = _classify_spark(orders, customers, 1000)
+        shipments = self.spark.createDataFrame([shipment()], SHIPMENT_SCHEMA)
+        products = self.spark.createDataFrame([product()], PRODUCT_SCHEMA)
+        classified = _classify_spark(shipments, products, 1000)
         with patch("spark_dag.components._classify_spark", return_value=classified):
             with self.assertRaisesRegex(RuntimeError, "injected"):
-                with _transformed(orders, customers, 1000, use_spark=True) as (accepted, rejected):
+                with _transformed(shipments, products, 1000, use_spark=True) as (accepted, rejected):
                     self.assertTrue(classified.is_cached)
                     self.assertEqual(accepted.count(), 1)
                     self.assertEqual(rejected.count(), 0)
                     raise RuntimeError("injected")
         self.assertFalse(classified.is_cached)
+
+    def test_distributed_xml_matches_local_parser_and_refreshes_file_membership(self):
+        engine = super().engine()
+        source = engine.config.data["sources"]["shipments"]
+        local = engine.services.artifacts.read_source(source)
+        artifacts = ArtifactIO(engine.config, engine.store, self.spark)
+        distributed = [row.asDict() for row in artifacts.read_source(source).collect()]
+        self.assertEqual(sorted(local, key=canonical), sorted(distributed, key=canonical))
+        nested = self.root / "sample_data" / "shipments" / "partner"
+        nested.mkdir()
+        write_xml(nested / "new.XML", "shipment_batch", [shipment(shipment_id="ASN-PARTNER")])
+        refreshed = [row.asDict() for row in artifacts.read_source(source).collect()]
+        self.assertEqual(len(refreshed), len(local) + 1)
+        self.assertIn("ASN-PARTNER", {row["shipment_id"] for row in refreshed})
+
+    def test_distributed_xml_bounds_fail_before_parsing(self):
+        engine = super().engine()
+        artifacts = ArtifactIO(engine.config, engine.store, self.spark)
+        for limit, value in (("max_file_bytes", 10), ("max_files", 1)):
+            source = copy.deepcopy(engine.config.data["sources"]["shipments"])
+            source["xml"][limit] = value
+            with self.subTest(limit=limit), self.assertRaises(TaskFailure) as error:
+                artifacts.read_source(source)
+            self.assertEqual(error.exception.code, "XML_INPUT_LIMIT")
+            self.assertEqual(error.exception.category, Category.DATA_QUALITY)

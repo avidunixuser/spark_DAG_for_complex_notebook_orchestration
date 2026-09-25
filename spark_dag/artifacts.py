@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .canonical_xml import local_files, parse_document, read_bounded
 from .config_loader import Configuration
 from .control_store import ControlStore
 from .model import AttemptContext, Category, TaskFailure, WorkflowError, canonical, fingerprint
@@ -37,6 +38,28 @@ class ArtifactIO:
             raise WorkflowError("MISSING_SPARK", "Delta artifact operations require a Spark session.")
 
     def source_fingerprint(self, source: dict[str, Any]) -> dict[str, Any]:
+        if source["format"] == "xml":
+            if "://" not in source["path"]:
+                root = self.config.local_path(source["path"])
+                entries = []
+                for path in local_files(root, source["xml"]):
+                    content = read_bounded(path, source["xml"]["max_file_bytes"])
+                    entries.append(
+                        {
+                            "path": path.relative_to(root).as_posix(),
+                            "bytes": len(content),
+                            "sha256": hashlib.sha256(content).hexdigest(),
+                        }
+                    )
+                return {**source, "file_count": len(entries), "content_fingerprint": fingerprint(entries)}
+            from pyspark.sql import functions as F
+
+            files = self._xml_files(source).select(
+                "path",
+                "length",
+                F.sha2("content", 256).alias("sha256"),
+            )
+            return {**source, "content": self._delta_digest(files)}
         if source["format"] == "csv":
             try:
                 return {**source, "content_digest": _file_digest(self.config.local_path(source["path"]))}
@@ -58,7 +81,7 @@ class ArtifactIO:
 
     def parameter_fingerprints(self, value: Any) -> Any:
         if isinstance(value, dict):
-            if value.get("format") in {"csv", "delta"} and "path" in value and "schema" in value:
+            if value.get("format") in {"xml", "csv", "delta"} and "path" in value and "schema" in value:
                 return self.source_fingerprint(value)
             return {key: self.parameter_fingerprints(child) for key, child in value.items()}
         if isinstance(value, list):
@@ -66,6 +89,23 @@ class ArtifactIO:
         return value
 
     def read_source(self, source: dict[str, Any]) -> Any:
+        if source["format"] == "xml":
+            settings = source["xml"]
+            if self.spark is None:
+                root = self.config.local_path(source["path"])
+                return [
+                    row
+                    for path in local_files(root, settings)
+                    for row in parse_document(read_bounded(path, settings["max_file_bytes"]), settings)
+                ]
+            from pyspark.sql import functions as F
+            from pyspark.sql.types import ArrayType
+
+            schema = self.spark.createDataFrame([], source["schema"]).schema
+            parse = F.udf(lambda content: parse_document(content, settings), ArrayType(schema))
+            return (
+                self._xml_files(source).select(F.explode(parse("content")).alias("record")).select("record.*")
+            )
         if source["format"] == "delta":
             if self.spark is None:
                 raise WorkflowError("MISSING_SPARK", "A Delta source requires Spark.")
@@ -115,6 +155,50 @@ class ArtifactIO:
                 Category.INFRASTRUCTURE,
                 retryable=True,
             ) from None
+
+    def _xml_files(self, source: dict[str, Any]) -> Any:
+        if self.spark is None:
+            raise WorkflowError("MISSING_SPARK", "Distributed XML ingestion requires a Spark session.")
+        from pyspark.errors import AnalysisException
+        from pyspark.sql import functions as F
+
+        path = source["path"] if "://" in source["path"] else str(self.config.local_path(source["path"]))
+        try:
+            self.spark.catalog.refreshByPath(path)
+            files = (
+                self.spark.read.format("binaryFile")
+                .option("recursiveFileLookup", "true")
+                .option(
+                    "pathGlobFilter",
+                    "*.[xX][mM][lL]",
+                )
+                .load(path)
+            )
+            counts = files.agg(F.count("*").alias("files"), F.max("length").alias("largest")).first()
+        except AnalysisException as error:
+            if error.getErrorClass() == "PATH_NOT_FOUND":
+                raise TaskFailure(
+                    "SOURCE_UNAVAILABLE",
+                    "The canonical XML input set is unavailable.",
+                    Category.INFRASTRUCTURE,
+                    retryable=True,
+                ) from None
+            raise
+        if not counts["files"]:
+            raise TaskFailure(
+                "SOURCE_UNAVAILABLE",
+                "No canonical XML files were found.",
+                Category.INFRASTRUCTURE,
+                retryable=True,
+            )
+        if (
+            counts["files"] > source["xml"]["max_files"]
+            or counts["largest"] > source["xml"]["max_file_bytes"]
+        ):
+            raise TaskFailure(
+                "XML_INPUT_LIMIT", "The XML input set exceeds its configured bounds.", Category.DATA_QUALITY
+            )
+        return files
 
     @staticmethod
     def _delta_digest(frame: Any) -> dict[str, Any]:

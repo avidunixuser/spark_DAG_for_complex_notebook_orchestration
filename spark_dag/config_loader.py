@@ -12,10 +12,11 @@ from urllib.parse import urlsplit
 
 from jsonschema import Draft202012Validator
 
+from .canonical_xml import schema_for
 from .leases import is_dfs_host, validate_lock_location
 from .model import WorkflowError, fingerprint
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 SECRET_KEYS = re.compile(
     r"(?:^|[._-])(password|passwd|token|access_token|access_key|account_key|client_secret|connection_string|sas_token)(?:$|[._-])",
     re.IGNORECASE,
@@ -165,9 +166,10 @@ def resolve_lakehouse_paths(config: dict[str, Any]) -> None:
     for section in ("control_store", "storage", "reject_data"):
         config[section]["path"] = qualify(config[section]["path"])
     for source in config["sources"].values():
-        if source["format"] != "delta":
+        if source["format"] not in {"xml", "delta"}:
             raise WorkflowError(
-                "UNVERSIONED_CLOUD_SOURCE", "Cloud sources must be landed, versioned Delta snapshots."
+                "UNVERSIONED_CLOUD_SOURCE",
+                "Cloud sources must be canonical XML input sets or versioned Delta snapshots.",
             )
         source["path"] = qualify(source["path"])
 
@@ -233,7 +235,7 @@ def load_config(
     if not isinstance(raw, dict):
         raise WorkflowError("INVALID_CONFIGURATION", "The sidecar root must be a JSON object.")
     if raw.get("schema_version") != SCHEMA_VERSION:
-        raise WorkflowError("UNSUPPORTED_SCHEMA", "Supported configuration schema version: 1.1.")
+        raise WorkflowError("UNSUPPORTED_SCHEMA", "Supported configuration schema version: 1.2.")
     selected = environment or raw.get("environment")
     overrides = raw.get("environment_overrides", {})
     if not isinstance(overrides, dict) or selected not in overrides:
@@ -286,6 +288,10 @@ def load_config(
     if effective["force_restart"]["enabled"] and effective["force_rerun"]:
         raise WorkflowError("CONFLICTING_MODES", "Force restart and force rerun are mutually exclusive.")
     for source in effective["sources"].values():
+        if source["format"] == "xml" and source["schema"] != schema_for(source["xml"]["contract"]):
+            raise WorkflowError(
+                "XML_SCHEMA_MISMATCH", "The source schema must match its canonical XML contract."
+            )
         if source.get("secret_ref") and source["secret_ref"] not in effective["secret_references"]:
             raise WorkflowError("INVALID_SECRET_REFERENCE", "A source references an undefined secret.")
     reference = effective["notifications"]["secret_ref"]

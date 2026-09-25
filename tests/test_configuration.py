@@ -15,7 +15,7 @@ from tests.support import ROOT, DeploymentTest
 class ConfigurationTests(DeploymentTest):
     def test_valid_json_configuration(self):
         config = self.config()
-        self.assertEqual(config.data["schema_version"], "1.1")
+        self.assertEqual(config.data["schema_version"], "1.2")
         self.assertEqual(len(config.fingerprint), 64)
         self.assertEqual(len(validate_dag(config)), 9)
 
@@ -114,7 +114,9 @@ class ConfigurationTests(DeploymentTest):
                 config = self.config(environment=platform)
                 root = config.data["lakehouse"]["root_uri"]
                 self.assertEqual(config.data["control_store"]["path"], root + "/Tables/dag_control_events")
-                self.assertEqual(config.data["sources"]["orders"]["path"], root + "/Tables/orders")
+                self.assertEqual(
+                    config.data["sources"]["shipments"]["path"], root + "/Files/canonical/shipments"
+                )
                 self.assertEqual(config.data["storage"]["path"], root + "/Files/dag/artifacts")
 
     def test_lakehouse_paths_cannot_escape_managed_folders(self):
@@ -148,7 +150,7 @@ class ConfigurationTests(DeploymentTest):
 
     def test_old_blob_schema_is_not_silently_accepted(self):
         self.data["schema_version"] = "1.0"
-        with self.assertRaisesRegex(WorkflowError, "1.1"):
+        with self.assertRaisesRegex(WorkflowError, "1.2"):
             self.config()
 
     def test_cloud_sqlite_is_rejected(self):
@@ -157,7 +159,7 @@ class ConfigurationTests(DeploymentTest):
             self.config()
 
     def test_abfss_container_authority_is_not_mistaken_for_credentials(self):
-        self.data["targets"]["extra"] = {"path": "abfss://data@account.dfs.core.windows.net/report"}
+        self.data["targets"]["extra"] = {"path": "abfss://data@account.dfs.core.windows.net/receiving_plan"}
         self.config()
 
     def test_spark_hadoop_account_keys_are_rejected(self):
@@ -183,7 +185,7 @@ class ConfigurationTests(DeploymentTest):
 
     def test_fault_injection_requires_opt_in(self):
         self.data["runtime"]["allow_fault_injection"] = False
-        self.fault("extract_orders")
+        self.fault("extract_shipments")
         with self.assertRaisesRegex(WorkflowError, "explicitly enabled"):
             self.config()
 

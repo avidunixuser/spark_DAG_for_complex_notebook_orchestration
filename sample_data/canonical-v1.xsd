@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:c="urn:example:supply-chain:canonical:1"
+           targetNamespace="urn:example:supply-chain:canonical:1"
+           elementFormDefault="qualified">
+  <xs:complexType name="ShipmentLineType">
+    <xs:sequence>
+      <xs:element name="shipmentId" type="xs:string"/>
+      <xs:element name="lineId" type="xs:string"/>
+      <xs:element name="sku" type="xs:string"/>
+      <xs:element name="warehouseId" type="xs:string"/>
+      <xs:element name="quantity" type="xs:string"/>
+      <xs:element name="unitOfMeasure" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="ProductType">
+    <xs:sequence>
+      <xs:element name="sku" type="xs:string"/>
+      <xs:element name="description" type="xs:string"/>
+      <xs:element name="unitOfMeasure" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:element name="ShipmentBatch">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="ShipmentLine" type="c:ShipmentLineType" minOccurs="1" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="ProductCatalog">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="Product" type="c:ProductType" minOccurs="1" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

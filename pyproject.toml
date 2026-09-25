@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "restartable-spark-dag"
-version = "0.2.0"
+version = "0.3.0"
 description = "A restartable notebook DAG reference runtime for Fabric and Databricks"
 requires-python = ">=3.11"
-dependencies = ["jsonschema>=4.23,<5"]
+dependencies = ["jsonschema>=4.23,<5", "defusedxml>=0.7.1,<1"]
 
 [project.optional-dependencies]
 cloud = ["azure-identity>=1.19,<2", "azure-storage-file-datalake>=12.18,<13", "databricks-sdk>=0.40,<1"]

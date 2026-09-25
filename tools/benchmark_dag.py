@@ -41,8 +41,8 @@ def main():
                 started = time.perf_counter()
                 summary = engine.run(RunRequest(BUSINESS_KEY))
                 elapsed = time.perf_counter() - started
-                case.assert_report(summary)
-                overlap = executor.started["fast_tail"] < executor.finished["extract_orders"]
+                case.assert_receiving_plan(summary)
+                overlap = executor.started["fast_tail"] < executor.finished["extract_shipments"]
                 assert overlap == (scheduling == "eager")
                 assert executor.peak <= engine.config.data["concurrency"]["max_parallel"]
                 measurements.append(
@@ -53,7 +53,7 @@ def main():
                         "peak_children": executor.peak,
                         "successor_overlapped_unrelated_branch": overlap,
                         "data_correctness": "passed",
-                        "delivery_intents": 1,
+                        "receipt_intents": 1,
                     }
                 )
             finally:
@@ -71,7 +71,7 @@ def main():
         "scope": "Synthetic local scheduling benchmark; not a Fabric/Databricks cloud SLA.",
         "code_fingerprint": config.code_fingerprint,
         "configuration_fingerprint": config.fingerprint,
-        "synthetic_delays_seconds": {"extract_customers": 0.05, "extract_orders": 0.5, "fast_tail": 0.5},
+        "synthetic_delays_seconds": {"extract_products": 0.05, "extract_shipments": 0.5, "fast_tail": 0.5},
         "median_seconds": medians,
         "median_speedup": round(medians["barrier"] / medians["eager"], 3),
         "measurements": measurements,

@@ -18,12 +18,12 @@ from tests.support import BUSINESS_KEY, DeploymentTest, InlineExecutor
 def overlap_scenario(data, scheduling, delay=0.5):
     data["runtime"]["scheduling"] = scheduling
     tail = copy.deepcopy(next(node for node in data["nodes"] if node["id"] == "cleanup"))
-    tail.update(id="fast_tail", dependencies=["extract_customers"], trigger={"type": "all_success"})
+    tail.update(id="fast_tail", dependencies=["extract_products"], trigger={"type": "all_success"})
     tail["checkpoint"]["name"] = "fast_tail_done"
     data["nodes"].append(tail)
     data["runtime"]["fault_injection"] = {
-        "extract_customers": {"kind": "timeout", "attempts": [1], "delay_seconds": delay / 10},
-        "extract_orders": {"kind": "timeout", "attempts": [1], "delay_seconds": delay},
+        "extract_products": {"kind": "timeout", "attempts": [1], "delay_seconds": delay / 10},
+        "extract_shipments": {"kind": "timeout", "attempts": [1], "delay_seconds": delay},
         "fast_tail": {"kind": "timeout", "attempts": [1], "delay_seconds": delay},
     }
 
@@ -78,7 +78,7 @@ class PerformanceTests(DeploymentTest):
         engine.executor = executor
         self.last_engine = engine
         result = engine.run(RunRequest(BUSINESS_KEY))
-        self.assert_report(result)
+        self.assert_receiving_plan(result)
         self.assertLessEqual(executor.peak, self.data["concurrency"]["max_parallel"])
         for name, peak in executor.group_peaks.items():
             self.assertLessEqual(peak, self.data["concurrency"]["groups"][name])
@@ -88,11 +88,11 @@ class PerformanceTests(DeploymentTest):
 
     def test_eager_successor_does_not_wait_for_unrelated_branch(self):
         _, executor = self.measured_run("eager")
-        self.assertLess(executor.started["fast_tail"], executor.finished["extract_orders"])
+        self.assertLess(executor.started["fast_tail"], executor.finished["extract_shipments"])
 
     def test_barrier_mode_retains_native_wave_semantics(self):
         _, executor = self.measured_run("barrier")
-        self.assertGreaterEqual(executor.started["fast_tail"], executor.finished["extract_orders"])
+        self.assertGreaterEqual(executor.started["fast_tail"], executor.finished["extract_shipments"])
 
     def test_node_index_is_built_once(self):
         config = self.config()
@@ -100,8 +100,8 @@ class PerformanceTests(DeploymentTest):
 
     def test_child_loads_run_and_dependencies_in_one_snapshot(self):
         cleanup = self.node("cleanup")
-        cleanup["dependencies"] = ["extract_orders", "extract_customers"]
-        self.data["nodes"] = [self.node("extract_orders"), self.node("extract_customers"), cleanup]
+        cleanup["dependencies"] = ["extract_shipments", "extract_products"]
+        self.data["nodes"] = [self.node("extract_shipments"), self.node("extract_products"), cleanup]
         engine = self.engine()
         counts = {}
 
@@ -166,36 +166,36 @@ class PerformanceTests(DeploymentTest):
             store.events("scope")
 
     def test_single_missing_source_exhausts_retries_without_scheduler_stall(self):
-        keep = self.node("extract_orders")
+        keep = self.node("extract_shipments")
         self.data["nodes"] = [keep]
-        self.data["dag"]["entry_nodes"] = ["extract_orders"]
-        (self.root / "sample_data" / "orders.csv").unlink()
+        self.data["dag"]["entry_nodes"] = ["extract_shipments"]
+        (self.root / "sample_data" / "shipments").rename(self.root / "sample_data" / "shipments-unavailable")
         result = self.run_dag()
         self.assertEqual(result["status"], "FAILED")
-        self.assertEqual(result["nodes"]["extract_orders"]["attempt"], 2)
+        self.assertEqual(result["nodes"]["extract_shipments"]["attempt"], 2)
 
     def test_preparation_window_does_not_claim_queued_nodes_early(self):
         self.data["concurrency"]["max_parallel"] = 1
-        self.fault("extract_customers", "timeout", delay_seconds=0.15)
+        self.fault("extract_products", "timeout", delay_seconds=0.15)
         result = self.run_dag()
-        self.assert_report(result)
+        self.assert_receiving_plan(result)
         self.assertGreaterEqual(
-            result["nodes"]["extract_orders"]["started_at"],
-            result["nodes"]["extract_customers"]["ended_at"],
+            result["nodes"]["extract_shipments"]["started_at"],
+            result["nodes"]["extract_products"]["ended_at"],
         )
         events = self.last_engine.store.backend.events(self.scope())
         orders_ready = next(
             event
             for event in events
-            if event["node_id"] == "extract_orders" and event["event_type"] == "NODE_READY"
+            if event["node_id"] == "extract_shipments" and event["event_type"] == "NODE_READY"
         )
-        self.assertGreaterEqual(orders_ready["timestamp"], result["nodes"]["extract_customers"]["ended_at"])
+        self.assertGreaterEqual(orders_ready["timestamp"], result["nodes"]["extract_products"]["ended_at"])
 
     def test_eager_fail_fast_does_not_cancel_dispatched_ready_attempt(self):
         self.data["runtime"]["failure_policy"] = "fail_fast"
-        self.fault("extract_customers")
-        self.fault("extract_orders", "timeout", delay_seconds=0.15)
+        self.fault("extract_products")
+        self.fault("extract_shipments", "timeout", delay_seconds=0.15)
         result = self.run_dag()
         self.assertEqual(result["status"], "FAILED")
-        self.assertEqual(result["nodes"]["extract_orders"]["status"], Status.SUCCEEDED)
+        self.assertEqual(result["nodes"]["extract_shipments"]["status"], Status.SUCCEEDED)
         self.assertEqual(result["nodes"]["cleanup"]["status"], Status.SUCCEEDED)

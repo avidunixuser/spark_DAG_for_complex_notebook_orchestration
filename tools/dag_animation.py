@@ -18,12 +18,12 @@ ROOT = Path(__file__).resolve().parents[1]
 WIDTH, HEIGHT = 1320, 830
 CARD_W, CARD_H = 218, 84
 POSITIONS = {
-    "extract_orders": (40, 212),
-    "extract_customers": (40, 350),
-    "transform_orders": (298, 282),
+    "extract_shipments": (40, 212),
+    "extract_products": (40, 350),
+    "validate_shipments": (298, 282),
     "quality_gate": (548, 282),
-    "publish_report": (798, 282),
-    "deliver_report": (1048, 282),
+    "plan_receipts": (798, 282),
+    "request_receipts": (1048, 282),
     "notify_failure": (420, 545),
     "notify_timeout": (710, 545),
     "cleanup": (1048, 665),
@@ -47,18 +47,24 @@ STATE_LABELS = {
 }
 MAIN_NODES = tuple(POSITIONS)[:6]
 SCENARIOS = (
-    ("happy", "Happy path", "Two extracts run independently; the join waits for both.", None, False),
+    (
+        "happy",
+        "Happy path",
+        "Shipment and product XML ingestion run independently; validation waits for both.",
+        None,
+        False,
+    ),
     (
         "retry",
         "Transient retry",
-        "A transient transformation failure retries within the same run.",
+        "A transient shipment-validation failure retries within the same run.",
         "retryable",
         False,
     ),
     (
         "recovery",
         "Failure and resume",
-        "A failed transformation is repaired; valid extract checkpoints are reused.",
+        "Failed shipment validation is repaired; valid XML ingestion checkpoints are reused.",
         "permanent",
         True,
     ),
@@ -113,7 +119,7 @@ def record(root: Path) -> dict[str, Any]:
         original.data["original_datastage_job"] != "NOT_SUPPLIED_REFERENCE_ONLY"
         or set(original.nodes) != set(POSITIONS)
         or original.data["runtime"]["platform"] != "local"
-        or any(source["format"] != "csv" for source in original.data["sources"].values())
+        or any(source["format"] != "xml" for source in original.data["sources"].values())
     ):
         raise WorkflowError("SAMPLE_ONLY", "The recorder only executes the bundled local reference DAG.")
     base = json.loads((root / "job_config.json").read_text(encoding="utf-8"))
@@ -150,10 +156,10 @@ def record(root: Path) -> dict[str, Any]:
             data["control_store"] = {"backend": "sqlite", "path": ".runtime/control.sqlite3"}
             data["storage"] = {"backend": "local", "path": ".runtime/outputs"}
             data["reject_data"] = {"path": ".runtime/rejects"}
-            data["sources"]["orders"]["path"] = "sample_data/orders.csv"
-            data["sources"]["customers"]["path"] = "sample_data/customers.csv"
+            data["sources"]["shipments"]["path"] = "sample_data/shipments"
+            data["sources"]["products"]["path"] = "sample_data/products"
             data["runtime"].update(platform="local", allow_fault_injection=True, fault_injection={})
-            node_id = "extract_orders" if fault == "timeout" else "transform_orders"
+            node_id = "extract_shipments" if fault == "timeout" else "validate_shipments"
             if fault:
                 data["runtime"]["fault_injection"][node_id] = {
                     "kind": fault,
@@ -182,23 +188,25 @@ def record(root: Path) -> dict[str, Any]:
                 )
             final = runs[-1]
             scope = fingerprint([data["application_id"], data["dag"]["id"], "2026-09-24"])
-            report = engine.services.artifacts.read(final["nodes"]["publish_report"]["outputs"]["report"])
-            expected = [
-                {"region": "North", "total_cents": 1500, "order_count": 2},
-                {"region": "South", "total_cents": 2050, "order_count": 1},
-            ]
+            plan = engine.services.artifacts.read(
+                final["nodes"]["plan_receipts"]["outputs"]["receiving_plan"]
+            )
+            expected = json.loads(
+                (root / "sample_data" / "expected_receiving_plan.json").read_text(encoding="utf-8")
+            )
             outbox = engine.store.view(scope).all("outbox")
             if (
                 final["status"] != "SUCCEEDED"
-                or sorted(report, key=lambda row: row["region"]) != expected
+                or sorted(plan, key=lambda row: (row["warehouse_id"], row["sku"])) != expected
                 or len(outbox) != 1
+                or outbox[0]["operation"] != "inventory_receipt"
             ):
                 raise RuntimeError(f"{scenario_id}: recorded output did not satisfy the sample contract.")
             if resume and not any(
                 node["status"] == "SKIPPED_ALREADY_SATISFIED" for node in final["nodes"].values()
             ):
                 raise RuntimeError(f"{scenario_id}: recovery did not reuse valid checkpoints.")
-            if scenario_id == "retry" and final["nodes"]["transform_orders"]["attempt"] != 2:
+            if scenario_id == "retry" and final["nodes"]["validate_shipments"]["attempt"] != 2:
                 raise RuntimeError("The retry recording must contain exactly two transformation attempts.")
             events = sanitize_events(
                 engine.store.backend.events(scope),
@@ -211,7 +219,7 @@ def record(root: Path) -> dict[str, Any]:
                     "description": description,
                     "events": events,
                     "final_status": final["status"],
-                    "verified": {"report": expected, "delivery_intents": len(outbox)},
+                    "verified": {"receiving_plan": expected, "receipt_intents": len(outbox)},
                 }
             )
         finally:
@@ -244,7 +252,7 @@ def timeline(scenario: dict[str, Any], nodes: list[dict[str, Any]]) -> list[dict
             caption = (
                 "Run failed. The next recorded run follows manual remediation."
                 if event["status"] == "FAILED"
-                else "Run succeeded. Output verified; exactly one delivery intent."
+                else "Run succeeded. Receiving plan verified; one inventory-receipt intent."
             )
         else:
             continue
@@ -307,7 +315,7 @@ def edges(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "points": [(660, 454), (660, 506), (819, 506), (819, 545)],
             },
             {
-                "source": "deliver_report",
+                "source": "request_receipts",
                 "target": "cleanup",
                 "dashed": False,
                 "points": [(1266, 324), (1290, 324), (1290, 707), (1266, 707)],
@@ -332,11 +340,11 @@ def edges(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def diagram_svg(nodes: list[dict[str, Any]]) -> str:
     parts = [
         f'<svg id="dag" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-labelledby="dag-title dag-description" xmlns="http://www.w3.org/2000/svg">',
-        '<title id="dag-title">Restartable notebook DAG playback</title>',
-        '<desc id="dag-description">Nine notebook nodes. Parallel extracts feed transformation, quality checks, publication, and delivery intent. Failure and timeout handlers wait for the six-node main path; cleanup waits for delivery and both handlers.</desc>',
+        '<title id="dag-title">Warehouse receiving DAG playback</title>',
+        '<desc id="dag-description">Nine notebook nodes. Parallel canonical XML ingestion feeds shipment validation, quality checks, a warehouse receiving plan, and an inventory-receipt intent. Failure and timeout handlers wait for the six-node main path; cleanup waits for receipt intent and both handlers.</desc>',
         '<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/></marker></defs>',
         '<rect width="1320" height="830" rx="22" fill="#0b1220"/>',
-        '<text x="40" y="49" fill="#e2e8f0" font-size="26" font-weight="700">Restartable Spark DAG</text>',
+        '<text x="40" y="49" fill="#e2e8f0" font-size="26" font-weight="700">Warehouse receiving DAG</text>',
         '<text x="40" y="80" fill="#94a3b8" font-size="16">RECORDED LOCAL DEMO  /  not live telemetry</text>',
         '<text id="svg-phase" x="1280" y="49" text-anchor="end" fill="#c4b5fd" font-size="18"></text>',
         '<text id="svg-caption" x="40" y="127" fill="#e2e8f0" font-size="17"></text>',
@@ -349,8 +357,8 @@ def diagram_svg(nodes: list[dict[str, Any]]) -> str:
         '<text x="1048" y="652" fill="#94a3b8" font-size="14">ALL DONE / BOOKKEEPING</text>',
         '<text x="40" y="585" fill="#94a3b8" font-size="15">ADLS Gen2 file coordination</text>',
         '<text x="40" y="610" fill="#94a3b8" font-size="15">Lakehouse Delta control + outputs</text>',
-        '<text x="40" y="640" fill="#64748b" font-size="13">Local recording uses SQLite + files.</text>',
-        '<text x="40" y="680" fill="#94a3b8" font-size="13">Delivery creates an outbox intent, not a transfer.</text>',
+        '<text x="40" y="640" fill="#64748b" font-size="13">Inputs: canonical XML batches + catalog.</text>',
+        '<text x="40" y="680" fill="#94a3b8" font-size="13">Receipt intent only; no inventory is posted.</text>',
     ]
     for index, edge in enumerate(edges(nodes)):
         points = " ".join(f"{x:g},{y:g}" for x, y in edge["points"])
@@ -414,7 +422,7 @@ def draw_frame(document: dict[str, Any], scenario: dict[str, Any], frame: dict[s
     def text(x: int, y: int, value: str, size: int = 16, color: str = "#cbd5e1"):
         draw.text((x, y), value, fill=color, font=ImageFont.load_default(size=size))
 
-    text(40, 25, "Restartable Spark DAG", 29, "#e2e8f0")
+    text(40, 25, "Warehouse receiving DAG", 29, "#e2e8f0")
     text(40, 65, "RECORDED LOCAL DEMO  /  not live telemetry", 16, "#94a3b8")
     text(810, 30, f"{scenario['title']}  |  run {frame['run']}  /  {frame['mode']}", 17, "#c4b5fd")
     text(40, 107, frame["caption"], 19, "#e2e8f0")
@@ -427,8 +435,8 @@ def draw_frame(document: dict[str, Any], scenario: dict[str, Any], frame: dict[s
     text(1048, 637, "ALL DONE / BOOKKEEPING", 14, "#94a3b8")
     text(40, 568, "ADLS Gen2 file coordination", 15, "#94a3b8")
     text(40, 593, "Lakehouse Delta control + outputs", 15, "#94a3b8")
-    text(40, 625, "Local recording uses SQLite + files.", 13, "#64748b")
-    text(40, 665, "Delivery creates an outbox intent, not a transfer.", 13, "#94a3b8")
+    text(40, 625, "Inputs: canonical XML batches + catalog.", 13, "#64748b")
+    text(40, 665, "Receipt intent only; no inventory is posted.", 13, "#94a3b8")
     for edge in edges(document["nodes"]):
         points = edge["points"]
         state = frame["states"][edge["target"]]["status"]

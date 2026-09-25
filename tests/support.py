@@ -9,8 +9,10 @@ import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from xml.etree.ElementTree import Element, SubElement, tostring
 
 from spark_dag.artifacts import filesystem_path
+from spark_dag.canonical_xml import CONTRACTS, NAMESPACE, XML_VERSION
 from spark_dag.checkpoint_manager import input_fingerprint
 from spark_dag.config_loader import load_config
 from spark_dag.executors import ExecutorBase
@@ -20,6 +22,35 @@ from spark_dag.worker import ChildFailed, run_child
 
 ROOT = Path(__file__).resolve().parents[1]
 BUSINESS_KEY = "2026-09-24"
+EXPECTED_PLAN = json.loads(
+    (ROOT / "sample_data" / "expected_receiving_plan.json").read_text(encoding="utf-8")
+)
+
+
+def shipment(**values):
+    return {
+        "shipment_id": "ASN-TEST",
+        "line_id": "1",
+        "sku": "SKU-FILTER",
+        "warehouse_id": "WH-ATL",
+        "quantity": "1",
+        "unit_of_measure": "EA",
+        **values,
+    }
+
+
+def product(**values):
+    return {"sku": "SKU-FILTER", "description": "Replacement air filters", "unit_of_measure": "EA", **values}
+
+
+def write_xml(path, contract, rows):
+    definition = CONTRACTS[contract]
+    root = Element(f"{{{NAMESPACE}}}{definition['root']}", {"schemaVersion": XML_VERSION})
+    for row in rows:
+        record = SubElement(root, f"{{{NAMESPACE}}}{definition['record']}")
+        for element, column in definition["fields"]:
+            SubElement(record, f"{{{NAMESPACE}}}{element}").text = row[column]
+    path.write_bytes(tostring(root, encoding="utf-8", xml_declaration=True))
 
 
 class InlineExecutor(ExecutorBase):
@@ -103,23 +134,25 @@ class DeploymentTest(unittest.TestCase):
     def fault(self, key, kind="permanent", attempts=None, **kwargs):
         self.data["runtime"]["fault_injection"][key] = {"kind": kind, "attempts": attempts or [1], **kwargs}
 
+    def add_shipment(self, **values):
+        path = self.root / "sample_data" / "shipments" / "asn-additional.xml"
+        write_xml(
+            path, "shipment_batch", [shipment(**{"shipment_id": "ASN-4001", "quantity": "10", **values})]
+        )
+        return path
+
     def scope(self):
         return fingerprint([self.data["application_id"], self.data["dag"]["id"], BUSINESS_KEY])
 
-    def assert_report(self, summary):
+    def assert_receiving_plan(self, summary):
         self.assertEqual(summary["status"], "SUCCEEDED", summary["failed_node_details"])
-        reference = summary["nodes"]["publish_report"]["outputs"]["report"]
+        reference = summary["nodes"]["plan_receipts"]["outputs"]["receiving_plan"]
         rows = self.last_engine.services.artifacts.read(reference)
-        self.assertEqual(
-            sorted(rows, key=lambda row: row["region"]),
-            [
-                {"region": "North", "total_cents": 1500, "order_count": 2},
-                {"region": "South", "total_cents": 2050, "order_count": 1},
-            ],
-        )
+        self.assertEqual(sorted(rows, key=lambda row: (row["warehouse_id"], row["sku"])), EXPECTED_PLAN)
         outbox = self.last_engine.store.view(self.scope()).all("outbox")
         self.assertEqual(len(outbox), 1)
-        self.assertEqual(outbox[0]["status"], "PENDING_DELIVERY")
+        self.assertEqual(outbox[0]["status"], "PENDING_DISPATCH")
+        self.assertEqual(outbox[0]["operation"], "inventory_receipt")
         return copy.deepcopy(rows)
 
 
@@ -127,7 +160,7 @@ class PreparedAttemptTest(DeploymentTest):
     def prepare_attempt(self):
         engine = self.engine()
         run = engine.store.begin_run(self.scope(), RunRequest(BUSINESS_KEY), engine.config, engine.plan)
-        node = engine.config.nodes["extract_orders"]
+        node = engine.config.nodes["extract_shipments"]
         parameters = engine._parameters(run, node, 1, {})
         inputs = input_fingerprint(engine.config, node, parameters, {}, engine.services.artifacts)
         ready = engine.store.prepare(self.scope(), run["run_id"], node["id"], run["owner"], inputs, {})

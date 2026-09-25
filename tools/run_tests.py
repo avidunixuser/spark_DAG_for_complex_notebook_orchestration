@@ -102,6 +102,10 @@ def main():
         "cloud_validation": "Fabric, Databricks, and ADLS Gen2 file APIs are contract-tested with fakes, not live services.",
         "spark_requested": args.spark,
         "delta_requested": args.delta,
+        "browser_requested": os.environ.get("SPARK_DAG_BROWSER_TESTS") == "1",
+        "browser_channel": os.environ.get("SPARK_DAG_BROWSER_CHANNEL")
+        if os.environ.get("SPARK_DAG_BROWSER_TESTS") == "1"
+        else None,
         "results": result.records,
     }
     Path(args.output).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

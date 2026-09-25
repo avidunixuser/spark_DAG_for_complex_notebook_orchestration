@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ShipmentBatch xmlns="urn:example:supply-chain:canonical:1" schemaVersion="1.0">
+  <ShipmentLine>
+    <shipmentId>ASN-1002</shipmentId>
+    <lineId>1</lineId>
+    <sku>SKU-FILTER</sku>
+    <warehouseId>WH-ATL</warehouseId>
+    <quantity>40</quantity>
+    <unitOfMeasure>EA</unitOfMeasure>
+  </ShipmentLine>
+  <ShipmentLine>
+    <shipmentId>ASN-3001</shipmentId>
+    <lineId>1</lineId>
+    <sku>SKU-UNKNOWN</sku>
+    <warehouseId>WH-ATL</warehouseId>
+    <quantity>25</quantity>
+    <unitOfMeasure>EA</unitOfMeasure>
+  </ShipmentLine>
+  <ShipmentLine>
+    <shipmentId>ASN-3002</shipmentId>
+    <lineId>1</lineId>
+    <sku>SKU-SEAL</sku>
+    <warehouseId>WH-DFW</warehouseId>
+    <quantity>-5</quantity>
+    <unitOfMeasure>EA</unitOfMeasure>
+  </ShipmentLine>
+</ShipmentBatch>

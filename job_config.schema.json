@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:restartable-spark-dag:configuration:1.1",
+  "$id": "urn:restartable-spark-dag:configuration:1.2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -12,7 +12,7 @@
     "environment_overrides", "force_restart", "force_rerun"
   ],
   "properties": {
-    "schema_version": {"const": "1.1"},
+    "schema_version": {"const": "1.2"},
     "configuration_version": {"type": "string", "minLength": 1},
     "application_id": {"$ref": "#/$defs/id"},
     "application_name": {"type": "string", "minLength": 1},
@@ -93,14 +93,27 @@
       "additionalProperties": {
         "type": "object", "additionalProperties": false, "required": ["format", "path", "schema"],
         "properties": {
-          "format": {"enum": ["csv", "delta"]},
+          "format": {"enum": ["xml", "csv", "delta"]},
           "path": {"type": "string", "minLength": 1},
           "schema": {"type": "string", "minLength": 1},
           "snapshot_version": {"type": "integer", "minimum": 0},
-          "secret_ref": {"type": ["string", "null"]}
+          "secret_ref": {"type": ["string", "null"]},
+          "xml": {
+            "type": "object", "additionalProperties": false,
+            "required": ["contract", "schema_version", "max_file_bytes", "max_records_per_file", "max_files"],
+            "properties": {
+              "contract": {"enum": ["shipment_batch", "product_catalog"]},
+              "schema_version": {"const": "1.0"},
+              "max_file_bytes": {"type": "integer", "minimum": 1, "maximum": 33554432},
+              "max_records_per_file": {"type": "integer", "minimum": 1, "maximum": 100000},
+              "max_files": {"type": "integer", "minimum": 1}
+            }
+          }
         },
-        "if": {"properties": {"format": {"const": "delta"}}},
-        "then": {"required": ["snapshot_version"]}
+        "allOf": [
+          {"if": {"properties": {"format": {"const": "delta"}}}, "then": {"required": ["snapshot_version"]}},
+          {"if": {"properties": {"format": {"const": "xml"}}}, "then": {"required": ["xml"]}}
+        ]
       }
     },
     "targets": {"type": "object", "additionalProperties": {"type": "object"}},
@@ -180,11 +193,11 @@
     },
     "data_quality": {
       "type": "object", "additionalProperties": false,
-      "required": ["max_reject_count", "minimum_accepted_rows", "max_amount_cents"],
+      "required": ["max_reject_count", "minimum_accepted_rows", "max_quantity"],
       "properties": {
         "max_reject_count": {"type": "integer", "minimum": 0},
         "minimum_accepted_rows": {"type": "integer", "minimum": 0},
-        "max_amount_cents": {"type": "integer", "minimum": 0, "maximum": 999999999999999999}
+        "max_quantity": {"type": "integer", "minimum": 0, "maximum": 999999999999999999}
       }
     },
     "notifications": {

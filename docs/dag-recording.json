@@ -1,34 +1,34 @@
 {
   "schema_version": 1,
-  "dag_id": "sales_dag",
-  "dag_version": "1.0",
-  "code_fingerprint": "bbefb79240d89c1abeb19230ec8af96cea991b84e2277cf4b0f6842f07a8ccfe",
-  "configuration_fingerprint": "ab09449078ad3b710b98e7141a60d42557c4096beca05fc29d9da264f05e2c4c",
+  "dag_id": "receiving_dag",
+  "dag_version": "2.0",
+  "code_fingerprint": "ebd94602e856bdaa9e647395bf5ec24c7c1e5b6895aa15fe79bbed38ac781af5",
+  "configuration_fingerprint": "68a9a3f507b8208836baf055a2b70e88409585bb8e22cd6b1ef0ee82c958c485",
   "provenance": "Recorded local reference runs with injected faults, not live cloud telemetry.",
   "timing": "Audit sequence order is preserved. Playback uses fixed presentation intervals, not wall-clock durations.",
   "nodes": [
     {
-      "id": "extract_orders",
-      "description": "Read an immutable landed order snapshot; do not extract with JDBC.",
+      "id": "extract_shipments",
+      "description": "Read a bounded canonical XML shipment-file set and preserve shipment-line business keys.",
       "dependencies": [],
       "trigger": {
         "type": "all_success"
       }
     },
     {
-      "id": "extract_customers",
-      "description": "Read the customer dimension snapshot in parallel with orders.",
+      "id": "extract_products",
+      "description": "Read canonical XML product catalog files in parallel with shipment ingestion.",
       "dependencies": [],
       "trigger": {
         "type": "all_success"
       }
     },
     {
-      "id": "transform_orders",
-      "description": "Fan-in; validate integer cents and keys, deduplicate exact rows, join the dimension, quarantine rejects.",
+      "id": "validate_shipments",
+      "description": "Fan-in; validate positive quantities, shipment-line keys, SKU and unit-of-measure; quarantine invalid lines.",
       "dependencies": [
-        "extract_orders",
-        "extract_customers"
+        "extract_shipments",
+        "extract_products"
       ],
       "trigger": {
         "type": "all_success"
@@ -38,15 +38,15 @@
       "id": "quality_gate",
       "description": "Enforce reject and accepted-row thresholds without dropping rejected records.",
       "dependencies": [
-        "transform_orders"
+        "validate_shipments"
       ],
       "trigger": {
         "type": "all_success"
       }
     },
     {
-      "id": "publish_report",
-      "description": "Aggregate exact integer cents by region and publish an immutable report version.",
+      "id": "plan_receipts",
+      "description": "Aggregate accepted units by warehouse, SKU and unit-of-measure into an immutable receiving plan.",
       "dependencies": [
         "quality_gate"
       ],
@@ -55,10 +55,10 @@
       }
     },
     {
-      "id": "deliver_report",
-      "description": "Commit one deduplicated delivery intent, not an actual external delivery.",
+      "id": "request_receipts",
+      "description": "Commit one deduplicated inventory-receipt intent; do not post inventory to a WMS.",
       "dependencies": [
-        "publish_report"
+        "plan_receipts"
       ],
       "trigger": {
         "type": "all_success",
@@ -72,12 +72,12 @@
       "id": "notify_failure",
       "description": "Record a failure notification intent after all main-path nodes are terminal.",
       "dependencies": [
-        "extract_orders",
-        "extract_customers",
-        "transform_orders",
+        "extract_shipments",
+        "extract_products",
+        "validate_shipments",
         "quality_gate",
-        "publish_report",
-        "deliver_report"
+        "plan_receipts",
+        "request_receipts"
       ],
       "trigger": {
         "type": "any_failed"
@@ -87,12 +87,12 @@
       "id": "notify_timeout",
       "description": "Record a timeout notice; never automatically unlock uncertain workers.",
       "dependencies": [
-        "extract_orders",
-        "extract_customers",
-        "transform_orders",
+        "extract_shipments",
+        "extract_products",
+        "validate_shipments",
         "quality_gate",
-        "publish_report",
-        "deliver_report"
+        "plan_receipts",
+        "request_receipts"
       ],
       "trigger": {
         "type": "any_timed_out"
@@ -102,7 +102,7 @@
       "id": "cleanup",
       "description": "Record end-of-run cleanup bookkeeping; do not delete checkpoints or shared data.",
       "dependencies": [
-        "deliver_report",
+        "request_receipts",
         "notify_failure",
         "notify_timeout"
       ],
@@ -115,7 +115,7 @@
     {
       "id": "happy",
       "title": "Happy path",
-      "description": "Two extracts run independently; the join waits for both.",
+      "description": "Shipment and product XML ingestion run independently; validation waits for both.",
       "events": [
         {
           "sequence": 1,
@@ -131,7 +131,7 @@
           "sequence": 11,
           "run": 1,
           "event": "NODE_READY",
-          "node": "extract_customers",
+          "node": "extract_products",
           "status": "READY",
           "mode": "normal",
           "attempt": 1,
@@ -141,7 +141,7 @@
           "sequence": 12,
           "run": 1,
           "event": "NODE_READY",
-          "node": "extract_orders",
+          "node": "extract_shipments",
           "status": "READY",
           "mode": "normal",
           "attempt": 1,
@@ -151,7 +151,7 @@
           "sequence": 13,
           "run": 1,
           "event": "ATTEMPT_CLAIMED",
-          "node": "extract_customers",
+          "node": "extract_products",
           "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
@@ -161,7 +161,7 @@
           "sequence": 14,
           "run": 1,
           "event": "ATTEMPT_CLAIMED",
-          "node": "extract_orders",
+          "node": "extract_shipments",
           "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
@@ -171,7 +171,7 @@
           "sequence": 15,
           "run": 1,
           "event": "ATTEMPT_FINISHED",
-          "node": "extract_customers",
+          "node": "extract_products",
           "status": "SUCCEEDED",
           "mode": "normal",
           "attempt": 1,
@@ -181,7 +181,7 @@
           "sequence": 16,
           "run": 1,
           "event": "ATTEMPT_FINISHED",
-          "node": "extract_orders",
+          "node": "extract_shipments",
           "status": "SUCCEEDED",
           "mode": "normal",
           "attempt": 1,
@@ -191,7 +191,7 @@
           "sequence": 17,
           "run": 1,
           "event": "NODE_READY",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "READY",
           "mode": "normal",
           "attempt": 1,
@@ -201,7 +201,7 @@
           "sequence": 18,
           "run": 1,
           "event": "ATTEMPT_CLAIMED",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
@@ -211,7 +211,7 @@
           "sequence": 19,
           "run": 1,
           "event": "ATTEMPT_FINISHED",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "SUCCEEDED",
           "mode": "normal",
           "attempt": 1,
@@ -251,7 +251,7 @@
           "sequence": 23,
           "run": 1,
           "event": "NODE_READY",
-          "node": "publish_report",
+          "node": "plan_receipts",
           "status": "READY",
           "mode": "normal",
           "attempt": 1,
@@ -261,7 +261,7 @@
           "sequence": 24,
           "run": 1,
           "event": "ATTEMPT_CLAIMED",
-          "node": "publish_report",
+          "node": "plan_receipts",
           "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
@@ -271,7 +271,7 @@
           "sequence": 25,
           "run": 1,
           "event": "ATTEMPT_FINISHED",
-          "node": "publish_report",
+          "node": "plan_receipts",
           "status": "SUCCEEDED",
           "mode": "normal",
           "attempt": 1,
@@ -281,7 +281,7 @@
           "sequence": 26,
           "run": 1,
           "event": "NODE_READY",
-          "node": "deliver_report",
+          "node": "request_receipts",
           "status": "READY",
           "mode": "normal",
           "attempt": 1,
@@ -291,7 +291,7 @@
           "sequence": 27,
           "run": 1,
           "event": "ATTEMPT_CLAIMED",
-          "node": "deliver_report",
+          "node": "request_receipts",
           "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
@@ -301,7 +301,7 @@
           "sequence": 29,
           "run": 1,
           "event": "ATTEMPT_FINISHED",
-          "node": "deliver_report",
+          "node": "request_receipts",
           "status": "SUCCEEDED",
           "mode": "normal",
           "attempt": 1,
@@ -370,25 +370,29 @@
       ],
       "final_status": "SUCCEEDED",
       "verified": {
-        "report": [
+        "receiving_plan": [
           {
-            "region": "North",
-            "total_cents": 1500,
-            "order_count": 2
+            "warehouse_id": "WH-ATL",
+            "sku": "SKU-FILTER",
+            "unit_of_measure": "EA",
+            "expected_units": 120,
+            "shipment_lines": 2
           },
           {
-            "region": "South",
-            "total_cents": 2050,
-            "order_count": 1
+            "warehouse_id": "WH-DFW",
+            "sku": "SKU-SEAL",
+            "unit_of_measure": "EA",
+            "expected_units": 60,
+            "shipment_lines": 1
           }
         ],
-        "delivery_intents": 1
+        "receipt_intents": 1
       }
     },
     {
       "id": "retry",
       "title": "Transient retry",
-      "description": "A transient transformation failure retries within the same run.",
+      "description": "A transient shipment-validation failure retries within the same run.",
       "events": [
         {
           "sequence": 1,
@@ -404,7 +408,7 @@
           "sequence": 11,
           "run": 1,
           "event": "NODE_READY",
-          "node": "extract_customers",
+          "node": "extract_products",
           "status": "READY",
           "mode": "normal",
           "attempt": 1,
@@ -414,7 +418,7 @@
           "sequence": 12,
           "run": 1,
           "event": "NODE_READY",
-          "node": "extract_orders",
+          "node": "extract_shipments",
           "status": "READY",
           "mode": "normal",
           "attempt": 1,
@@ -424,7 +428,7 @@
           "sequence": 13,
           "run": 1,
           "event": "ATTEMPT_CLAIMED",
-          "node": "extract_customers",
+          "node": "extract_shipments",
           "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
@@ -433,9 +437,9 @@
         {
           "sequence": 14,
           "run": 1,
-          "event": "ATTEMPT_CLAIMED",
-          "node": "extract_orders",
-          "status": "RUNNING",
+          "event": "ATTEMPT_FINISHED",
+          "node": "extract_shipments",
+          "status": "SUCCEEDED",
           "mode": "normal",
           "attempt": 1,
           "error_category": null
@@ -443,9 +447,9 @@
         {
           "sequence": 15,
           "run": 1,
-          "event": "ATTEMPT_FINISHED",
-          "node": "extract_customers",
-          "status": "SUCCEEDED",
+          "event": "ATTEMPT_CLAIMED",
+          "node": "extract_products",
+          "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
           "error_category": null
@@ -454,7 +458,7 @@
           "sequence": 16,
           "run": 1,
           "event": "ATTEMPT_FINISHED",
-          "node": "extract_orders",
+          "node": "extract_products",
           "status": "SUCCEEDED",
           "mode": "normal",
           "attempt": 1,
@@ -464,7 +468,7 @@
           "sequence": 17,
           "run": 1,
           "event": "NODE_READY",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "READY",
           "mode": "normal",
           "attempt": 1,
@@ -474,7 +478,7 @@
           "sequence": 18,
           "run": 1,
           "event": "ATTEMPT_CLAIMED",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
@@ -484,7 +488,7 @@
           "sequence": 19,
           "run": 1,
           "event": "ATTEMPT_FINISHED",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "FAILED",
           "mode": "normal",
           "attempt": 1,
@@ -494,7 +498,7 @@
           "sequence": 20,
           "run": 1,
           "event": "RETRY_SCHEDULED",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "READY",
           "mode": "normal",
           "attempt": 2,
@@ -504,7 +508,7 @@
           "sequence": 21,
           "run": 1,
           "event": "ATTEMPT_CLAIMED",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "RUNNING",
           "mode": "normal",
           "attempt": 2,
@@ -514,7 +518,7 @@
           "sequence": 22,
           "run": 1,
           "event": "ATTEMPT_FINISHED",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "SUCCEEDED",
           "mode": "normal",
           "attempt": 2,
@@ -554,7 +558,7 @@
           "sequence": 26,
           "run": 1,
           "event": "NODE_READY",
-          "node": "publish_report",
+          "node": "plan_receipts",
           "status": "READY",
           "mode": "normal",
           "attempt": 1,
@@ -564,7 +568,7 @@
           "sequence": 27,
           "run": 1,
           "event": "ATTEMPT_CLAIMED",
-          "node": "publish_report",
+          "node": "plan_receipts",
           "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
@@ -574,7 +578,7 @@
           "sequence": 28,
           "run": 1,
           "event": "ATTEMPT_FINISHED",
-          "node": "publish_report",
+          "node": "plan_receipts",
           "status": "SUCCEEDED",
           "mode": "normal",
           "attempt": 1,
@@ -584,7 +588,7 @@
           "sequence": 29,
           "run": 1,
           "event": "NODE_READY",
-          "node": "deliver_report",
+          "node": "request_receipts",
           "status": "READY",
           "mode": "normal",
           "attempt": 1,
@@ -594,7 +598,7 @@
           "sequence": 30,
           "run": 1,
           "event": "ATTEMPT_CLAIMED",
-          "node": "deliver_report",
+          "node": "request_receipts",
           "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
@@ -604,7 +608,7 @@
           "sequence": 32,
           "run": 1,
           "event": "ATTEMPT_FINISHED",
-          "node": "deliver_report",
+          "node": "request_receipts",
           "status": "SUCCEEDED",
           "mode": "normal",
           "attempt": 1,
@@ -673,25 +677,29 @@
       ],
       "final_status": "SUCCEEDED",
       "verified": {
-        "report": [
+        "receiving_plan": [
           {
-            "region": "North",
-            "total_cents": 1500,
-            "order_count": 2
+            "warehouse_id": "WH-ATL",
+            "sku": "SKU-FILTER",
+            "unit_of_measure": "EA",
+            "expected_units": 120,
+            "shipment_lines": 2
           },
           {
-            "region": "South",
-            "total_cents": 2050,
-            "order_count": 1
+            "warehouse_id": "WH-DFW",
+            "sku": "SKU-SEAL",
+            "unit_of_measure": "EA",
+            "expected_units": 60,
+            "shipment_lines": 1
           }
         ],
-        "delivery_intents": 1
+        "receipt_intents": 1
       }
     },
     {
       "id": "recovery",
       "title": "Failure and resume",
-      "description": "A failed transformation is repaired; valid extract checkpoints are reused.",
+      "description": "Failed shipment validation is repaired; valid XML ingestion checkpoints are reused.",
       "events": [
         {
           "sequence": 1,
@@ -707,7 +715,7 @@
           "sequence": 11,
           "run": 1,
           "event": "NODE_READY",
-          "node": "extract_customers",
+          "node": "extract_products",
           "status": "READY",
           "mode": "normal",
           "attempt": 1,
@@ -717,7 +725,7 @@
           "sequence": 12,
           "run": 1,
           "event": "NODE_READY",
-          "node": "extract_orders",
+          "node": "extract_shipments",
           "status": "READY",
           "mode": "normal",
           "attempt": 1,
@@ -727,7 +735,7 @@
           "sequence": 13,
           "run": 1,
           "event": "ATTEMPT_CLAIMED",
-          "node": "extract_customers",
+          "node": "extract_shipments",
           "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
@@ -737,7 +745,7 @@
           "sequence": 14,
           "run": 1,
           "event": "ATTEMPT_CLAIMED",
-          "node": "extract_orders",
+          "node": "extract_products",
           "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
@@ -747,7 +755,7 @@
           "sequence": 15,
           "run": 1,
           "event": "ATTEMPT_FINISHED",
-          "node": "extract_customers",
+          "node": "extract_shipments",
           "status": "SUCCEEDED",
           "mode": "normal",
           "attempt": 1,
@@ -757,7 +765,7 @@
           "sequence": 16,
           "run": 1,
           "event": "ATTEMPT_FINISHED",
-          "node": "extract_orders",
+          "node": "extract_products",
           "status": "SUCCEEDED",
           "mode": "normal",
           "attempt": 1,
@@ -767,7 +775,7 @@
           "sequence": 17,
           "run": 1,
           "event": "NODE_READY",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "READY",
           "mode": "normal",
           "attempt": 1,
@@ -777,7 +785,7 @@
           "sequence": 18,
           "run": 1,
           "event": "ATTEMPT_CLAIMED",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
@@ -787,7 +795,7 @@
           "sequence": 19,
           "run": 1,
           "event": "ATTEMPT_FINISHED",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "FAILED",
           "mode": "normal",
           "attempt": 1,
@@ -807,7 +815,7 @@
           "sequence": 21,
           "run": 1,
           "event": "NODE_BLOCKED",
-          "node": "publish_report",
+          "node": "plan_receipts",
           "status": "BLOCKED",
           "mode": "normal",
           "attempt": 0,
@@ -817,7 +825,7 @@
           "sequence": 22,
           "run": 1,
           "event": "NODE_BLOCKED",
-          "node": "deliver_report",
+          "node": "request_receipts",
           "status": "BLOCKED",
           "mode": "normal",
           "attempt": 0,
@@ -917,7 +925,7 @@
           "sequence": 41,
           "run": 2,
           "event": "NODE_SKIPPED",
-          "node": "extract_customers",
+          "node": "extract_products",
           "status": "SKIPPED_ALREADY_SATISFIED",
           "mode": "resume",
           "attempt": 0,
@@ -927,7 +935,7 @@
           "sequence": 42,
           "run": 2,
           "event": "NODE_SKIPPED",
-          "node": "extract_orders",
+          "node": "extract_shipments",
           "status": "SKIPPED_ALREADY_SATISFIED",
           "mode": "resume",
           "attempt": 0,
@@ -937,7 +945,7 @@
           "sequence": 43,
           "run": 2,
           "event": "NODE_READY",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "READY",
           "mode": "resume",
           "attempt": 1,
@@ -947,7 +955,7 @@
           "sequence": 44,
           "run": 2,
           "event": "ATTEMPT_CLAIMED",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "RUNNING",
           "mode": "resume",
           "attempt": 1,
@@ -957,7 +965,7 @@
           "sequence": 45,
           "run": 2,
           "event": "ATTEMPT_FINISHED",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "SUCCEEDED",
           "mode": "resume",
           "attempt": 1,
@@ -997,7 +1005,7 @@
           "sequence": 49,
           "run": 2,
           "event": "NODE_READY",
-          "node": "publish_report",
+          "node": "plan_receipts",
           "status": "READY",
           "mode": "resume",
           "attempt": 1,
@@ -1007,7 +1015,7 @@
           "sequence": 50,
           "run": 2,
           "event": "ATTEMPT_CLAIMED",
-          "node": "publish_report",
+          "node": "plan_receipts",
           "status": "RUNNING",
           "mode": "resume",
           "attempt": 1,
@@ -1017,7 +1025,7 @@
           "sequence": 51,
           "run": 2,
           "event": "ATTEMPT_FINISHED",
-          "node": "publish_report",
+          "node": "plan_receipts",
           "status": "SUCCEEDED",
           "mode": "resume",
           "attempt": 1,
@@ -1027,7 +1035,7 @@
           "sequence": 52,
           "run": 2,
           "event": "NODE_READY",
-          "node": "deliver_report",
+          "node": "request_receipts",
           "status": "READY",
           "mode": "resume",
           "attempt": 1,
@@ -1037,7 +1045,7 @@
           "sequence": 53,
           "run": 2,
           "event": "ATTEMPT_CLAIMED",
-          "node": "deliver_report",
+          "node": "request_receipts",
           "status": "RUNNING",
           "mode": "resume",
           "attempt": 1,
@@ -1047,7 +1055,7 @@
           "sequence": 55,
           "run": 2,
           "event": "ATTEMPT_FINISHED",
-          "node": "deliver_report",
+          "node": "request_receipts",
           "status": "SUCCEEDED",
           "mode": "resume",
           "attempt": 1,
@@ -1116,19 +1124,23 @@
       ],
       "final_status": "SUCCEEDED",
       "verified": {
-        "report": [
+        "receiving_plan": [
           {
-            "region": "North",
-            "total_cents": 1500,
-            "order_count": 2
+            "warehouse_id": "WH-ATL",
+            "sku": "SKU-FILTER",
+            "unit_of_measure": "EA",
+            "expected_units": 120,
+            "shipment_lines": 2
           },
           {
-            "region": "South",
-            "total_cents": 2050,
-            "order_count": 1
+            "warehouse_id": "WH-DFW",
+            "sku": "SKU-SEAL",
+            "unit_of_measure": "EA",
+            "expected_units": 60,
+            "shipment_lines": 1
           }
         ],
-        "delivery_intents": 1
+        "receipt_intents": 1
       }
     },
     {
@@ -1150,7 +1162,7 @@
           "sequence": 11,
           "run": 1,
           "event": "NODE_READY",
-          "node": "extract_customers",
+          "node": "extract_products",
           "status": "READY",
           "mode": "normal",
           "attempt": 1,
@@ -1160,7 +1172,7 @@
           "sequence": 12,
           "run": 1,
           "event": "NODE_READY",
-          "node": "extract_orders",
+          "node": "extract_shipments",
           "status": "READY",
           "mode": "normal",
           "attempt": 1,
@@ -1170,7 +1182,7 @@
           "sequence": 13,
           "run": 1,
           "event": "ATTEMPT_CLAIMED",
-          "node": "extract_orders",
+          "node": "extract_products",
           "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
@@ -1179,9 +1191,9 @@
         {
           "sequence": 14,
           "run": 1,
-          "event": "ATTEMPT_CLAIMED",
-          "node": "extract_customers",
-          "status": "RUNNING",
+          "event": "ATTEMPT_FINISHED",
+          "node": "extract_products",
+          "status": "SUCCEEDED",
           "mode": "normal",
           "attempt": 1,
           "error_category": null
@@ -1189,9 +1201,9 @@
         {
           "sequence": 15,
           "run": 1,
-          "event": "ATTEMPT_FINISHED",
-          "node": "extract_customers",
-          "status": "SUCCEEDED",
+          "event": "ATTEMPT_CLAIMED",
+          "node": "extract_shipments",
+          "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
           "error_category": null
@@ -1200,7 +1212,7 @@
           "sequence": 16,
           "run": 1,
           "event": "ATTEMPT_FINISHED",
-          "node": "extract_orders",
+          "node": "extract_shipments",
           "status": "TIMED_OUT",
           "mode": "normal",
           "attempt": 1,
@@ -1210,7 +1222,7 @@
           "sequence": 17,
           "run": 1,
           "event": "NODE_BLOCKED",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "BLOCKED",
           "mode": "normal",
           "attempt": 0,
@@ -1230,7 +1242,7 @@
           "sequence": 19,
           "run": 1,
           "event": "NODE_BLOCKED",
-          "node": "publish_report",
+          "node": "plan_receipts",
           "status": "BLOCKED",
           "mode": "normal",
           "attempt": 0,
@@ -1240,7 +1252,7 @@
           "sequence": 20,
           "run": 1,
           "event": "NODE_BLOCKED",
-          "node": "deliver_report",
+          "node": "request_receipts",
           "status": "BLOCKED",
           "mode": "normal",
           "attempt": 0,
@@ -1270,7 +1282,7 @@
           "sequence": 23,
           "run": 1,
           "event": "ATTEMPT_CLAIMED",
-          "node": "notify_failure",
+          "node": "notify_timeout",
           "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
@@ -1279,9 +1291,9 @@
         {
           "sequence": 24,
           "run": 1,
-          "event": "ATTEMPT_CLAIMED",
+          "event": "ATTEMPT_FINISHED",
           "node": "notify_timeout",
-          "status": "RUNNING",
+          "status": "SUCCEEDED",
           "mode": "normal",
           "attempt": 1,
           "error_category": null
@@ -1289,9 +1301,9 @@
         {
           "sequence": 25,
           "run": 1,
-          "event": "ATTEMPT_FINISHED",
+          "event": "ATTEMPT_CLAIMED",
           "node": "notify_failure",
-          "status": "SUCCEEDED",
+          "status": "RUNNING",
           "mode": "normal",
           "attempt": 1,
           "error_category": null
@@ -1300,7 +1312,7 @@
           "sequence": 26,
           "run": 1,
           "event": "ATTEMPT_FINISHED",
-          "node": "notify_timeout",
+          "node": "notify_failure",
           "status": "SUCCEEDED",
           "mode": "normal",
           "attempt": 1,
@@ -1360,7 +1372,7 @@
           "sequence": 41,
           "run": 2,
           "event": "NODE_SKIPPED",
-          "node": "extract_customers",
+          "node": "extract_products",
           "status": "SKIPPED_ALREADY_SATISFIED",
           "mode": "resume",
           "attempt": 0,
@@ -1370,7 +1382,7 @@
           "sequence": 42,
           "run": 2,
           "event": "NODE_READY",
-          "node": "extract_orders",
+          "node": "extract_shipments",
           "status": "READY",
           "mode": "resume",
           "attempt": 1,
@@ -1380,7 +1392,7 @@
           "sequence": 43,
           "run": 2,
           "event": "ATTEMPT_CLAIMED",
-          "node": "extract_orders",
+          "node": "extract_shipments",
           "status": "RUNNING",
           "mode": "resume",
           "attempt": 1,
@@ -1390,7 +1402,7 @@
           "sequence": 44,
           "run": 2,
           "event": "ATTEMPT_FINISHED",
-          "node": "extract_orders",
+          "node": "extract_shipments",
           "status": "SUCCEEDED",
           "mode": "resume",
           "attempt": 1,
@@ -1400,7 +1412,7 @@
           "sequence": 45,
           "run": 2,
           "event": "NODE_READY",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "READY",
           "mode": "resume",
           "attempt": 1,
@@ -1410,7 +1422,7 @@
           "sequence": 46,
           "run": 2,
           "event": "ATTEMPT_CLAIMED",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "RUNNING",
           "mode": "resume",
           "attempt": 1,
@@ -1420,7 +1432,7 @@
           "sequence": 47,
           "run": 2,
           "event": "ATTEMPT_FINISHED",
-          "node": "transform_orders",
+          "node": "validate_shipments",
           "status": "SUCCEEDED",
           "mode": "resume",
           "attempt": 1,
@@ -1460,7 +1472,7 @@
           "sequence": 51,
           "run": 2,
           "event": "NODE_READY",
-          "node": "publish_report",
+          "node": "plan_receipts",
           "status": "READY",
           "mode": "resume",
           "attempt": 1,
@@ -1470,7 +1482,7 @@
           "sequence": 52,
           "run": 2,
           "event": "ATTEMPT_CLAIMED",
-          "node": "publish_report",
+          "node": "plan_receipts",
           "status": "RUNNING",
           "mode": "resume",
           "attempt": 1,
@@ -1480,7 +1492,7 @@
           "sequence": 53,
           "run": 2,
           "event": "ATTEMPT_FINISHED",
-          "node": "publish_report",
+          "node": "plan_receipts",
           "status": "SUCCEEDED",
           "mode": "resume",
           "attempt": 1,
@@ -1490,7 +1502,7 @@
           "sequence": 54,
           "run": 2,
           "event": "NODE_READY",
-          "node": "deliver_report",
+          "node": "request_receipts",
           "status": "READY",
           "mode": "resume",
           "attempt": 1,
@@ -1500,7 +1512,7 @@
           "sequence": 55,
           "run": 2,
           "event": "ATTEMPT_CLAIMED",
-          "node": "deliver_report",
+          "node": "request_receipts",
           "status": "RUNNING",
           "mode": "resume",
           "attempt": 1,
@@ -1510,7 +1522,7 @@
           "sequence": 57,
           "run": 2,
           "event": "ATTEMPT_FINISHED",
-          "node": "deliver_report",
+          "node": "request_receipts",
           "status": "SUCCEEDED",
           "mode": "resume",
           "attempt": 1,
@@ -1579,19 +1591,23 @@
       ],
       "final_status": "SUCCEEDED",
       "verified": {
-        "report": [
+        "receiving_plan": [
           {
-            "region": "North",
-            "total_cents": 1500,
-            "order_count": 2
+            "warehouse_id": "WH-ATL",
+            "sku": "SKU-FILTER",
+            "unit_of_measure": "EA",
+            "expected_units": 120,
+            "shipment_lines": 2
           },
           {
-            "region": "South",
-            "total_cents": 2050,
-            "order_count": 1
+            "warehouse_id": "WH-DFW",
+            "sku": "SKU-SEAL",
+            "unit_of_measure": "EA",
+            "expected_units": 60,
+            "shipment_lines": 1
           }
         ],
-        "delivery_intents": 1
+        "receipt_intents": 1
       }
     }
   ]
