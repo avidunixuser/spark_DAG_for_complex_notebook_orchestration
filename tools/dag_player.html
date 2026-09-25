@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Restartable Spark DAG - recorded playback</title>
+  <style>
+    :root { color-scheme: dark; font-family: "Segoe UI", system-ui, sans-serif; background: #080e1a; color: #e2e8f0; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 28px 22px 42px; }
+    main { max-width: 1320px; margin: 0 auto; }
+    .eyebrow { color: #38bdf8; text-transform: uppercase; letter-spacing: .14em; font-size: .72rem; font-weight: 700; }
+    h1 { font-size: clamp(1.65rem, 4vw, 2.45rem); letter-spacing: -.035em; margin: 8px 0 10px; }
+    .intro { max-width: 950px; color: #94a3b8; line-height: 1.65; margin: 0 0 22px; }
+    .toolbar, .transport { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+    .toolbar { justify-content: space-between; background: #111c2e; border: 1px solid #26354c; border-radius: 14px; padding: 16px; }
+    .choices { display: flex; flex-wrap: wrap; gap: 14px; }
+    label { display: block; color: #b4c3d8; font-size: .8rem; font-weight: 600; }
+    select, button { font: inherit; color: #e2e8f0; background: #1c2b42; border: 1px solid #425671; border-radius: 8px; min-height: 42px; }
+    select { display: block; margin-top: 7px; padding: 8px 34px 8px 12px; }
+    button { padding: 8px 16px; cursor: pointer; }
+    button:hover:not(:disabled) { border-color: #7dd3fc; background: #223a57; }
+    button:disabled { opacity: .4; cursor: default; }
+    button.primary { background: #075985; border-color: #38bdf8; min-width: 98px; font-weight: 700; }
+    :focus-visible { outline: 3px solid #7dd3fc; outline-offset: 4px; }
+    .scenario-description { font-size: .95rem; line-height: 1.5; color: #cbd5e1; margin: 17px 4px 8px; }
+    .timeline { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; padding: 8px 4px 16px; }
+    .timeline label { display: flex; gap: 14px; align-items: center; }
+    input[type="range"] { width: 100%; accent-color: #38bdf8; cursor: pointer; min-height: 30px; }
+    output { font-variant-numeric: tabular-nums; font-size: .82rem; color: #94a3b8; white-space: nowrap; }
+    .diagram-scroll { border: 1px solid #26354c; border-radius: 22px; overflow-x: auto; background: #0b1220; }
+    svg { width: 100%; min-width: 880px; display: block; font-family: "Segoe UI", system-ui, sans-serif; }
+    .playing .edge.flowing { stroke-dasharray: 8 6; animation: flow .7s linear infinite; }
+    .card { transition: stroke .12s ease; }
+    .node.active .card { stroke-width: 4; }
+    @keyframes flow { to { stroke-dashoffset: -28; } }
+    .status-bar { display: flex; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 14px 4px; color: #94a3b8; font-size: .82rem; }
+    #state-counts { color: #c4b5fd; }
+    .live { min-height: 1.5em; color: #cbd5e1; font-size: .88rem; }
+    details { margin-top: 18px; border: 1px solid #26354c; border-radius: 12px; padding: 15px; }
+    summary { cursor: pointer; color: #cbd5e1; }
+    .table-scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .8rem; margin-top: 16px; text-align: left; }
+    th, td { padding: 9px 12px; border-bottom: 1px solid #26354c; white-space: nowrap; }
+    th { color: #94a3b8; }
+    code { font-family: ui-monospace, Consolas, monospace; color: #bfdbfe; }
+    .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px,1fr)); gap: 22px; margin: 22px 4px 0; }
+    .notes p { margin: 0; color: #94a3b8; font-size: .82rem; line-height: 1.6; }
+    .notes strong { display: block; color: #cbd5e1; margin-bottom: 5px; }
+    #error { padding: 16px; border: 1px solid #fb7185; border-radius: 10px; color: #fda4af; margin-bottom: 16px; }
+    @media (prefers-reduced-motion: reduce) {
+      .playing .edge.flowing { animation: none; }
+      .card { transition: none; }
+    }
+    @media (max-width: 600px) { body { padding: 18px 10px; } button { padding: 8px 11px; } .timeline { grid-template-columns: 1fr; gap: 0; } }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Reference architecture / executable sample</div>
+  <h1>Watch the DAG recover.</h1>
+  <p class="intro">Play back real state transitions from isolated local sample runs. Follow parallel work,
+    retries, failure handlers, and checkpoint reuse. This is an offline recording, not a connection to
+    Fabric, Databricks, ADLS, or a production control store.</p>
+  <div id="error" role="alert" hidden></div>
+  <noscript><p>JavaScript is required for playback. Use the animated GIF or static architecture diagrams in the README instead.</p></noscript>
+  <div class="toolbar" aria-label="Playback controls">
+    <div class="choices">
+      <label for="scenario">Scenario<select id="scenario"></select></label>
+      <label for="speed">Playback speed<select id="speed">
+        <option value=".5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option><option value="4">4x</option>
+      </select></label>
+    </div>
+    <div class="transport">
+      <button id="restart" type="button" title="Return to the beginning, paused">Restart</button>
+      <button id="previous" type="button" aria-label="Previous event">Previous</button>
+      <button id="play" class="primary" type="button" aria-pressed="false">Play</button>
+      <button id="next" type="button" aria-label="Next event">Next</button>
+    </div>
+  </div>
+  <p id="description" class="scenario-description"></p>
+  <div class="timeline">
+    <label for="scrubber">Event <input id="scrubber" type="range" min="0" max="0" value="0" step="1"></label>
+    <output id="position" for="scrubber"></output>
+  </div>
+  <div class="diagram-scroll" tabindex="0" aria-label="DAG diagram; scroll horizontally on small screens">
+    <!--DAG_SVG-->
+  </div>
+  <div class="status-bar"><span id="event-kind"></span><span id="state-counts"></span></div>
+  <div id="announcement" class="live" role="status" aria-live="polite"></div>
+  <details>
+    <summary>Accessible node state table and exact trigger contracts</summary>
+    <div class="table-scroll"><table>
+      <thead><tr><th scope="col">Node</th><th scope="col">Status</th><th scope="col">Attempt</th><th scope="col">Dependencies</th><th scope="col">Trigger</th></tr></thead>
+      <tbody id="node-table"></tbody>
+    </table></div>
+  </details>
+  <div class="notes">
+    <p><strong>Presentation timing, not a benchmark</strong>
+      Event order comes from committed audit records. Fixed display intervals make short transitions
+      readable and do not represent execution duration. Each scenario verifies North 1500 / South 2050
+      cents and exactly one delivery intent.</p>
+    <p><strong>Failures are not hidden</strong>
+      Inactive handlers become condition-skipped. Failure/resume is two physical runs separated by
+      manual remediation. A timeout is retried only after the local process has stopped; uncertain
+      cloud termination requires operator reconciliation.</p>
+    <p><strong>Offline and motion-aware</strong>
+      No external libraries, fonts, requests, or telemetry. Playback starts paused and stops when this
+      tab is hidden. Reduced-motion preferences disable moving edge effects; step controls remain
+      available. Keyboard: Space to play/pause and arrow keys to step outside form controls.</p>
+  </div>
+</main>
+<script id="dag-data" type="application/json">/*DAG_DATA*/</script>
+<script>
+"use strict";
+(() => {
+  const byId = (id) => document.getElementById(id);
+  try {
+    const data = JSON.parse(byId("dag-data").textContent);
+    const controls = {
+      scenario: byId("scenario"), speed: byId("speed"), play: byId("play"),
+      previous: byId("previous"), next: byId("next"), restart: byId("restart"), scrubber: byId("scrubber")
+    };
+    let scenario = data.scenarios.find((item) => item.id === "recovery") || data.scenarios[0];
+    let index = 0;
+    let playing = false;
+    let timer = null;
+    const rows = new Map();
+    const nodes = new Map();
+    for (const entry of data.scenarios) {
+      const option = document.createElement("option");
+      option.value = entry.id;
+      option.textContent = entry.title;
+      controls.scenario.append(option);
+    }
+    for (const node of data.nodes) {
+      const row = document.createElement("tr");
+      for (const value of [node.id, "PENDING", "0", node.dependencies.join(", ") || "Entry node",
+        node.trigger.type + (node.trigger.condition ? " + condition" : "")]) {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        row.append(cell);
+      }
+      byId("node-table").append(row);
+      rows.set(node.id, row);
+      nodes.set(node.id, byId(`node-${node.id}`));
+    }
+    function render(announce = false) {
+      const frame = scenario.frames[index];
+      const counts = new Map();
+      controls.scenario.value = scenario.id;
+      controls.scrubber.max = scenario.frames.length - 1;
+      controls.scrubber.value = index;
+      controls.scrubber.setAttribute("aria-valuetext", `Event ${index + 1} of ${scenario.frames.length}: ${frame.caption}`);
+      controls.previous.disabled = index === 0;
+      controls.next.disabled = index === scenario.frames.length - 1;
+      controls.play.textContent = playing ? "Pause" : index === scenario.frames.length - 1 ? "Replay" : "Play";
+      controls.play.setAttribute("aria-pressed", String(playing));
+      document.body.classList.toggle("playing", playing);
+      byId("description").textContent = scenario.description;
+      byId("position").textContent = `${index + 1} / ${scenario.frames.length}`;
+      byId("svg-phase").textContent = `Run ${frame.run} / ${frame.mode}`;
+      byId("svg-caption").textContent = frame.caption;
+      byId("event-kind").textContent = `Audit sequence ${frame.sequence} | ${frame.event}`;
+      for (const [key, value] of Object.entries(frame.states)) {
+        const element = nodes.get(key);
+        const color = data.colors[value.status];
+        const label = data.labels[value.status] + (value.attempt ? `  |  attempt ${value.attempt}` : "");
+        element.dataset.status = value.status;
+        element.classList.toggle("active", key === frame.focus);
+        element.querySelector(".card").setAttribute("stroke", color);
+        element.querySelector(".state-dot").setAttribute("fill", color);
+        element.querySelector(".state-label").setAttribute("fill", color);
+        element.querySelector(".state-label").textContent = label;
+        rows.get(key).children[1].textContent = value.status;
+        rows.get(key).children[2].textContent = value.attempt;
+        counts.set(value.status, (counts.get(value.status) || 0) + 1);
+      }
+      data.edges.forEach((edge, edgeIndex) => {
+        const state = frame.states[edge.target].status;
+        const line = byId(`edge-${edgeIndex}`);
+        const highlighted = ["RUNNING", "SUCCEEDED", "SKIPPED_ALREADY_SATISFIED"].includes(state);
+        line.setAttribute("stroke", highlighted ? data.colors[state] : "#475569");
+        line.classList.toggle("flowing", state === "RUNNING");
+      });
+      byId("state-counts").textContent = [...counts].map(([state, count]) => `${count} ${data.labels[state].toLowerCase()}`).join(" / ");
+      if (announce) byId("announcement").textContent = `${scenario.title}. ${frame.caption}`;
+    }
+    function pause() {
+      playing = false;
+      clearTimeout(timer);
+      timer = null;
+      render();
+    }
+    function schedule() {
+      clearTimeout(timer);
+      if (!playing) return;
+      const delay = scenario.frames[index].duration_ms / Number(controls.speed.value);
+      timer = setTimeout(() => {
+        if (index >= scenario.frames.length - 1) {
+          pause();
+          render(true);
+          return;
+        }
+        index += 1;
+        render();
+        schedule();
+      }, delay);
+    }
+    function toggle() {
+      if (playing) { pause(); return; }
+      if (index === scenario.frames.length - 1) index = 0;
+      playing = true;
+      byId("announcement").textContent = `Playing ${scenario.title}.`;
+      render();
+      schedule();
+    }
+    function seek(next) {
+      pause();
+      index = Math.max(0, Math.min(scenario.frames.length - 1, next));
+      render(true);
+    }
+    controls.play.addEventListener("click", toggle);
+    controls.previous.addEventListener("click", () => seek(index - 1));
+    controls.next.addEventListener("click", () => seek(index + 1));
+    controls.restart.addEventListener("click", () => seek(0));
+    controls.scrubber.addEventListener("input", () => seek(Number(controls.scrubber.value)));
+    controls.speed.addEventListener("change", schedule);
+    controls.scenario.addEventListener("change", () => {
+      const selected = controls.scenario.value;
+      pause();
+      scenario = data.scenarios.find((item) => item.id === selected);
+      index = 0;
+      render(true);
+    });
+    document.addEventListener("visibilitychange", () => { if (document.hidden) pause(); });
+    document.addEventListener("keydown", (event) => {
+      if (event.target.closest("button,input,select,textarea,summary") || event.ctrlKey || event.altKey || event.metaKey) return;
+      if (event.key === " ") { event.preventDefault(); toggle(); }
+      if (event.key === "ArrowRight") { event.preventDefault(); seek(index + 1); }
+      if (event.key === "ArrowLeft") { event.preventDefault(); seek(index - 1); }
+    });
+    render(true);
+  } catch (error) {
+    const alert = byId("error");
+    alert.hidden = false;
+    alert.textContent = "The playback recording could not be loaded. Regenerate docs/dag-player.html with tools/dag_animation.py.";
+    document.querySelectorAll("button,select,input").forEach((control) => { control.disabled = true; });
+    console.error("DAG playback initialization failed.", error);
+  }
+})();
+</script>
+</body>
+</html>
