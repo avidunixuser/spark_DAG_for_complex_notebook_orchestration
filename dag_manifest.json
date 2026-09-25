@@ -1,0 +1,496 @@
+{
+  "schema_version": "1.0",
+  "reference_only": true,
+  "dag": {
+    "id": "sales_dag",
+    "version": "1.0",
+    "compatible_versions": [],
+    "entry_nodes": [
+      "extract_orders",
+      "extract_customers"
+    ]
+  },
+  "topological_plan": [
+    "extract_customers",
+    "extract_orders",
+    "transform_orders",
+    "quality_gate",
+    "publish_report",
+    "deliver_report",
+    "notify_failure",
+    "notify_timeout",
+    "cleanup"
+  ],
+  "nodes": [
+    {
+      "id": "extract_orders",
+      "notebook": "extract_orders",
+      "original_stage": "SAMPLE::LandedOrders",
+      "description": "Read an immutable landed order snapshot; do not extract with JDBC.",
+      "dependencies": [],
+      "trigger": {
+        "type": "all_success"
+      },
+      "parameters": {
+        "source": {
+          "$config": "sources.orders"
+        }
+      },
+      "expected_outputs": [
+        "orders"
+      ],
+      "timeout_seconds": 30,
+      "retry": {
+        "max_retries": 1,
+        "delay_seconds": 0.1,
+        "backoff": 2,
+        "max_delay_seconds": 2,
+        "categories": [
+          "INFRASTRUCTURE",
+          "RETRYABLE_APPLICATION",
+          "TIMEOUT"
+        ]
+      },
+      "restart": {
+        "eligible": true,
+        "policy": "reuse_valid"
+      },
+      "idempotency": {
+        "strategy": "overwrite",
+        "commit_boundary": "Immutable attempt artifact",
+        "partial_write": "Unreferenced staging data",
+        "recovery": "Read the same source snapshot",
+        "duplicate_prevention": "Downstream uses only checkpoint references",
+        "output_validation": "Content digest and row count"
+      },
+      "checkpoint": {
+        "name": "orders_landed",
+        "required": true
+      },
+      "failure_classification": "INFRASTRUCTURE",
+      "critical": true,
+      "concurrency_group": "extract",
+      "resources": {
+        "source_reads": 1
+      }
+    },
+    {
+      "id": "extract_customers",
+      "notebook": "extract_customers",
+      "original_stage": "SAMPLE::LandedCustomers",
+      "description": "Read the customer dimension snapshot in parallel with orders.",
+      "dependencies": [],
+      "trigger": {
+        "type": "all_success"
+      },
+      "parameters": {
+        "source": {
+          "$config": "sources.customers"
+        }
+      },
+      "expected_outputs": [
+        "customers"
+      ],
+      "timeout_seconds": 30,
+      "retry": {
+        "max_retries": 1,
+        "delay_seconds": 0.1,
+        "backoff": 2,
+        "max_delay_seconds": 2,
+        "categories": [
+          "INFRASTRUCTURE",
+          "RETRYABLE_APPLICATION",
+          "TIMEOUT"
+        ]
+      },
+      "restart": {
+        "eligible": true,
+        "policy": "reuse_valid"
+      },
+      "idempotency": {
+        "strategy": "overwrite",
+        "commit_boundary": "Immutable attempt artifact",
+        "partial_write": "Unreferenced staging data",
+        "recovery": "Read the same source snapshot",
+        "duplicate_prevention": "Downstream uses only checkpoint references",
+        "output_validation": "Content digest and row count"
+      },
+      "checkpoint": {
+        "name": "customers_landed",
+        "required": true
+      },
+      "failure_classification": "INFRASTRUCTURE",
+      "critical": true,
+      "concurrency_group": "extract",
+      "resources": {
+        "source_reads": 1
+      }
+    },
+    {
+      "id": "transform_orders",
+      "notebook": "transform_orders",
+      "original_stage": "SAMPLE::JoinAndReject",
+      "description": "Fan-in; validate integer cents and keys, deduplicate exact rows, join the dimension, quarantine rejects.",
+      "dependencies": [
+        "extract_orders",
+        "extract_customers"
+      ],
+      "trigger": {
+        "type": "all_success"
+      },
+      "parameters": {
+        "rules": {
+          "$config": "data_quality"
+        }
+      },
+      "expected_outputs": [
+        "accepted",
+        "rejects"
+      ],
+      "timeout_seconds": 30,
+      "retry": {
+        "max_retries": 1,
+        "delay_seconds": 0.1,
+        "backoff": 2,
+        "max_delay_seconds": 2,
+        "categories": [
+          "INFRASTRUCTURE",
+          "RETRYABLE_APPLICATION",
+          "TIMEOUT"
+        ]
+      },
+      "restart": {
+        "eligible": true,
+        "policy": "reuse_valid"
+      },
+      "idempotency": {
+        "strategy": "overwrite",
+        "commit_boundary": "Both artifacts validated before checkpoint",
+        "partial_write": "One artifact may exist but is not advertised",
+        "recovery": "Recompute from immutable upstream artifacts",
+        "duplicate_prevention": "Reject conflicting keys; collapse identical rows",
+        "output_validation": "Digest, count, and key validation"
+      },
+      "checkpoint": {
+        "name": "orders_transformed",
+        "required": true
+      },
+      "failure_classification": "DATA_QUALITY",
+      "critical": true,
+      "concurrency_group": "compute",
+      "resources": {}
+    },
+    {
+      "id": "quality_gate",
+      "notebook": "quality_gate",
+      "original_stage": "SAMPLE::QualityGate",
+      "description": "Enforce reject and accepted-row thresholds without dropping rejected records.",
+      "dependencies": [
+        "transform_orders"
+      ],
+      "trigger": {
+        "type": "all_success"
+      },
+      "parameters": {
+        "rules": {
+          "$config": "data_quality"
+        }
+      },
+      "expected_outputs": [
+        "accepted"
+      ],
+      "timeout_seconds": 30,
+      "retry": {
+        "max_retries": 0,
+        "delay_seconds": 0,
+        "backoff": 1,
+        "max_delay_seconds": 0,
+        "categories": []
+      },
+      "restart": {
+        "eligible": true,
+        "policy": "reuse_valid"
+      },
+      "idempotency": {
+        "strategy": "natural",
+        "commit_boundary": "Validated reference to upstream committed data",
+        "partial_write": "No write",
+        "recovery": "Re-evaluate the gate",
+        "duplicate_prevention": "Read-only validation",
+        "output_validation": "Thresholds, digest, and count"
+      },
+      "checkpoint": {
+        "name": "quality_approved",
+        "required": true
+      },
+      "failure_classification": "DATA_QUALITY",
+      "critical": true,
+      "concurrency_group": "compute",
+      "resources": {}
+    },
+    {
+      "id": "publish_report",
+      "notebook": "publish_report",
+      "original_stage": "SAMPLE::AggregateAndPublish",
+      "description": "Aggregate exact integer cents by region and publish an immutable report version.",
+      "dependencies": [
+        "quality_gate"
+      ],
+      "trigger": {
+        "type": "all_success"
+      },
+      "parameters": {
+        "target": {
+          "$config": "targets.report"
+        }
+      },
+      "expected_outputs": [
+        "report"
+      ],
+      "timeout_seconds": 30,
+      "retry": {
+        "max_retries": 1,
+        "delay_seconds": 0.1,
+        "backoff": 2,
+        "max_delay_seconds": 2,
+        "categories": [
+          "INFRASTRUCTURE",
+          "RETRYABLE_APPLICATION",
+          "TIMEOUT"
+        ]
+      },
+      "restart": {
+        "eligible": true,
+        "policy": "reuse_valid"
+      },
+      "idempotency": {
+        "strategy": "overwrite",
+        "commit_boundary": "Immutable report version and control checkpoint",
+        "partial_write": "Unreferenced attempt artifact",
+        "recovery": "Rebuild from the approved snapshot",
+        "duplicate_prevention": "One published checkpoint per run/node",
+        "output_validation": "Region totals and content digest"
+      },
+      "checkpoint": {
+        "name": "report_committed",
+        "required": true
+      },
+      "failure_classification": "INFRASTRUCTURE",
+      "critical": true,
+      "concurrency_group": "publish",
+      "resources": {
+        "target_writes": 1
+      }
+    },
+    {
+      "id": "deliver_report",
+      "notebook": "deliver_report",
+      "original_stage": "SAMPLE::DeliveryOutbox",
+      "description": "Commit one deduplicated delivery intent, not an actual external delivery.",
+      "dependencies": [
+        "publish_report"
+      ],
+      "trigger": {
+        "type": "all_success",
+        "condition": {
+          "parameter": "enabled",
+          "equals": true
+        }
+      },
+      "parameters": {
+        "enabled": {
+          "$config": "notifications.enabled"
+        }
+      },
+      "expected_outputs": [
+        "receipt"
+      ],
+      "timeout_seconds": 30,
+      "retry": {
+        "max_retries": 1,
+        "delay_seconds": 0.1,
+        "backoff": 2,
+        "max_delay_seconds": 2,
+        "categories": [
+          "INFRASTRUCTURE",
+          "RETRYABLE_APPLICATION",
+          "TIMEOUT"
+        ]
+      },
+      "restart": {
+        "eligible": true,
+        "policy": "reuse_valid"
+      },
+      "idempotency": {
+        "strategy": "deduplicate",
+        "commit_boundary": "Transactional outbox event",
+        "partial_write": "Intent may commit before the node checkpoint",
+        "recovery": "Reuse the same business-key intent",
+        "duplicate_prevention": "Stable key plus payload digest under the control-store lock",
+        "output_validation": "Validate durable receipt and payload digest"
+      },
+      "checkpoint": {
+        "name": "delivery_requested",
+        "required": true
+      },
+      "failure_classification": "RETRYABLE_APPLICATION",
+      "critical": true,
+      "concurrency_group": "publish",
+      "resources": {
+        "target_writes": 1
+      }
+    },
+    {
+      "id": "notify_failure",
+      "notebook": "notify_failure",
+      "original_stage": "SAMPLE::FailureTrigger",
+      "description": "Record a failure notification intent after all main-path nodes are terminal.",
+      "dependencies": [
+        "extract_orders",
+        "extract_customers",
+        "transform_orders",
+        "quality_gate",
+        "publish_report",
+        "deliver_report"
+      ],
+      "trigger": {
+        "type": "any_failed"
+      },
+      "parameters": {
+        "kind": "failure"
+      },
+      "expected_outputs": [
+        "notice"
+      ],
+      "timeout_seconds": 30,
+      "retry": {
+        "max_retries": 0,
+        "delay_seconds": 0,
+        "backoff": 1,
+        "max_delay_seconds": 0,
+        "categories": []
+      },
+      "restart": {
+        "eligible": true,
+        "policy": "reuse_valid"
+      },
+      "idempotency": {
+        "strategy": "overwrite",
+        "commit_boundary": "Immutable control notice",
+        "partial_write": "Unreferenced attempt artifact",
+        "recovery": "Recreate the notice",
+        "duplicate_prevention": "Versioned notice reference",
+        "output_validation": "Digest and count"
+      },
+      "checkpoint": {
+        "name": "failure_noted",
+        "required": true
+      },
+      "failure_classification": "INFRASTRUCTURE",
+      "critical": false,
+      "concurrency_group": "control",
+      "resources": {}
+    },
+    {
+      "id": "notify_timeout",
+      "notebook": "notify_timeout",
+      "original_stage": "SAMPLE::TimeoutTrigger",
+      "description": "Record a timeout notice; never automatically unlock uncertain workers.",
+      "dependencies": [
+        "extract_orders",
+        "extract_customers",
+        "transform_orders",
+        "quality_gate",
+        "publish_report",
+        "deliver_report"
+      ],
+      "trigger": {
+        "type": "any_timed_out"
+      },
+      "parameters": {
+        "kind": "timeout"
+      },
+      "expected_outputs": [
+        "notice"
+      ],
+      "timeout_seconds": 30,
+      "retry": {
+        "max_retries": 0,
+        "delay_seconds": 0,
+        "backoff": 1,
+        "max_delay_seconds": 0,
+        "categories": []
+      },
+      "restart": {
+        "eligible": true,
+        "policy": "reuse_valid"
+      },
+      "idempotency": {
+        "strategy": "overwrite",
+        "commit_boundary": "Immutable control notice",
+        "partial_write": "Unreferenced attempt artifact",
+        "recovery": "Recreate the notice",
+        "duplicate_prevention": "Versioned notice reference",
+        "output_validation": "Digest and count"
+      },
+      "checkpoint": {
+        "name": "timeout_noted",
+        "required": true
+      },
+      "failure_classification": "TIMEOUT",
+      "critical": false,
+      "concurrency_group": "control",
+      "resources": {}
+    },
+    {
+      "id": "cleanup",
+      "notebook": "cleanup",
+      "original_stage": "SAMPLE::CompletionTrigger",
+      "description": "Record end-of-run cleanup bookkeeping; do not delete checkpoints or shared data.",
+      "dependencies": [
+        "deliver_report",
+        "notify_failure",
+        "notify_timeout"
+      ],
+      "trigger": {
+        "type": "all_done"
+      },
+      "parameters": {},
+      "expected_outputs": [
+        "receipt"
+      ],
+      "timeout_seconds": 30,
+      "retry": {
+        "max_retries": 1,
+        "delay_seconds": 0.1,
+        "backoff": 2,
+        "max_delay_seconds": 2,
+        "categories": [
+          "INFRASTRUCTURE",
+          "RETRYABLE_APPLICATION",
+          "TIMEOUT"
+        ]
+      },
+      "restart": {
+        "eligible": true,
+        "policy": "reuse_valid"
+      },
+      "idempotency": {
+        "strategy": "overwrite",
+        "commit_boundary": "Immutable cleanup receipt",
+        "partial_write": "Unreferenced receipt",
+        "recovery": "Recreate bookkeeping",
+        "duplicate_prevention": "No external destructive side effect",
+        "output_validation": "Digest and count"
+      },
+      "checkpoint": {
+        "name": "cleanup_recorded",
+        "required": true
+      },
+      "failure_classification": "INFRASTRUCTURE",
+      "critical": true,
+      "concurrency_group": "control",
+      "resources": {}
+    }
+  ]
+}

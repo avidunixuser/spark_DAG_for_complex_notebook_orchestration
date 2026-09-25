@@ -1,0 +1,76 @@
+{
+  "generated_at": "2026-09-25T00:11:00.834335+00:00",
+  "environment": {
+    "os": "Windows",
+    "python": "3.13.5"
+  },
+  "scope": "Synthetic local scheduling benchmark; not a Fabric/Databricks cloud SLA.",
+  "code_fingerprint": "bbefb79240d89c1abeb19230ec8af96cea991b84e2277cf4b0f6842f07a8ccfe",
+  "configuration_fingerprint": "ab09449078ad3b710b98e7141a60d42557c4096beca05fc29d9da264f05e2c4c",
+  "synthetic_delays_seconds": {
+    "extract_customers": 0.05,
+    "extract_orders": 0.5,
+    "fast_tail": 0.5
+  },
+  "median_seconds": {
+    "barrier": 1.9357,
+    "eager": 1.318
+  },
+  "median_speedup": 1.469,
+  "measurements": [
+    {
+      "repetition": 1,
+      "scheduling": "barrier",
+      "duration_seconds": 1.8589,
+      "peak_children": 2,
+      "successor_overlapped_unrelated_branch": false,
+      "data_correctness": "passed",
+      "delivery_intents": 1
+    },
+    {
+      "repetition": 1,
+      "scheduling": "eager",
+      "duration_seconds": 1.4721,
+      "peak_children": 2,
+      "successor_overlapped_unrelated_branch": true,
+      "data_correctness": "passed",
+      "delivery_intents": 1
+    },
+    {
+      "repetition": 2,
+      "scheduling": "barrier",
+      "duration_seconds": 1.947,
+      "peak_children": 2,
+      "successor_overlapped_unrelated_branch": false,
+      "data_correctness": "passed",
+      "delivery_intents": 1
+    },
+    {
+      "repetition": 2,
+      "scheduling": "eager",
+      "duration_seconds": 1.3016,
+      "peak_children": 2,
+      "successor_overlapped_unrelated_branch": true,
+      "data_correctness": "passed",
+      "delivery_intents": 1
+    },
+    {
+      "repetition": 3,
+      "scheduling": "barrier",
+      "duration_seconds": 1.9357,
+      "peak_children": 2,
+      "successor_overlapped_unrelated_branch": false,
+      "data_correctness": "passed",
+      "delivery_intents": 1
+    },
+    {
+      "repetition": 3,
+      "scheduling": "eager",
+      "duration_seconds": 1.318,
+      "peak_children": 2,
+      "successor_overlapped_unrelated_branch": true,
+      "data_correctness": "passed",
+      "delivery_intents": 1
+    }
+  ]
+}

@@ -1,0 +1,277 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:restartable-spark-dag:configuration:1.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "configuration_version", "application_id", "application_name",
+    "original_datastage_job", "environment", "code_version", "dag", "notebook_base_path",
+    "notebooks", "nodes", "runtime", "spark", "sources", "targets", "lakehouse", "control_store",
+    "locking", "storage", "checkpoint", "run_key_strategy", "concurrency", "logging",
+    "secret_references", "reject_data", "data_quality", "notifications",
+    "environment_overrides", "force_restart", "force_rerun"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.1"},
+    "configuration_version": {"type": "string", "minLength": 1},
+    "application_id": {"$ref": "#/$defs/id"},
+    "application_name": {"type": "string", "minLength": 1},
+    "original_datastage_job": {"type": "string", "minLength": 1},
+    "environment": {"$ref": "#/$defs/id"},
+    "code_version": {"type": "string", "minLength": 1},
+    "dag": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "version", "compatible_versions", "entry_nodes"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "version": {"type": "string", "minLength": 1},
+        "compatible_versions": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "entry_nodes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}
+      }
+    },
+    "notebook_base_path": {"type": "string", "minLength": 1},
+    "notebooks": {
+      "type": "object", "minProperties": 2, "required": ["orchestrator"],
+      "propertyNames": {"$ref": "#/$defs/id"},
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false,
+        "required": ["path", "component", "fabric_name"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "component": {"$ref": "#/$defs/id"},
+          "fabric_name": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "nodes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/node"}},
+    "runtime": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "platform", "scheduling", "run_timeout_seconds", "failure_policy", "poll_interval_seconds",
+        "cancel_grace_seconds", "allow_fault_injection", "fault_injection", "databricks", "fabric"
+      ],
+      "properties": {
+        "platform": {"enum": ["local", "fabric", "databricks"]},
+        "scheduling": {"enum": ["eager", "barrier"]},
+        "run_timeout_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "failure_policy": {"enum": ["continue_independent", "fail_fast"]},
+        "poll_interval_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "cancel_grace_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "allow_fault_injection": {"type": "boolean"},
+        "fault_injection": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object", "additionalProperties": false, "required": ["kind", "attempts"],
+            "properties": {
+              "kind": {"enum": ["retryable", "permanent", "timeout", "crash", "after_output", "after_effect"]},
+              "attempts": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 1}},
+              "delay_seconds": {"type": "number", "minimum": 0}
+            }
+          }
+        },
+        "databricks": {
+          "type": "object", "additionalProperties": false,
+          "required": ["existing_cluster_id"],
+          "properties": {"existing_cluster_id": {"type": "string"}}
+        },
+        "fabric": {
+          "type": "object", "additionalProperties": false, "required": ["workspace"],
+          "properties": {"workspace": {"type": "string"}}
+        }
+      }
+    },
+    "spark": {
+      "type": "object", "additionalProperties": false,
+      "required": ["max_concurrent_notebooks", "settings"],
+      "properties": {
+        "max_concurrent_notebooks": {"type": "integer", "minimum": 1},
+        "settings": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    },
+    "sources": {
+      "type": "object", "minProperties": 1,
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false, "required": ["format", "path", "schema"],
+        "properties": {
+          "format": {"enum": ["csv", "delta"]},
+          "path": {"type": "string", "minLength": 1},
+          "schema": {"type": "string", "minLength": 1},
+          "snapshot_version": {"type": "integer", "minimum": 0},
+          "secret_ref": {"type": ["string", "null"]}
+        },
+        "if": {"properties": {"format": {"const": "delta"}}},
+        "then": {"required": ["snapshot_version"]}
+      }
+    },
+    "targets": {"type": "object", "additionalProperties": {"type": "object"}},
+    "lakehouse": {
+      "type": "object", "additionalProperties": false, "required": ["root_uri"],
+      "properties": {"root_uri": {"type": "string"}}
+    },
+    "control_store": {
+      "type": "object", "additionalProperties": false,
+      "required": ["backend", "path"],
+      "properties": {
+        "backend": {"enum": ["sqlite", "delta"]},
+        "path": {"type": "string", "minLength": 1}
+      }
+    },
+    "locking": {
+      "type": "object", "additionalProperties": false,
+      "required": ["enabled", "account_url", "file_system", "directory", "credential", "client_id", "wait_seconds", "lease_duration"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "account_url": {"type": "string"},
+        "file_system": {"type": "string", "minLength": 3},
+        "directory": {"type": "string", "minLength": 1},
+        "credential": {"enum": ["managed_identity", "workload_identity", "fabric_user", "development"]},
+        "client_id": {"type": "string"},
+        "wait_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "lease_duration": {"const": -1}
+      }
+    },
+    "storage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["backend", "path"],
+      "properties": {
+        "backend": {"enum": ["local", "delta"]},
+        "path": {"type": "string", "minLength": 1}
+      }
+    },
+    "checkpoint": {
+      "type": "object", "additionalProperties": false,
+      "required": ["required", "retention_days"],
+      "properties": {"required": {"const": true}, "retention_days": {"type": "integer", "minimum": 1}}
+    },
+    "run_key_strategy": {"const": "business_date"},
+    "concurrency": {
+      "type": "object", "additionalProperties": false,
+      "required": ["max_parallel", "groups", "resources"],
+      "properties": {
+        "max_parallel": {"type": "integer", "minimum": 1},
+        "groups": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "integer", "minimum": 1}},
+        "resources": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 1}}
+      }
+    },
+    "logging": {
+      "type": "object", "additionalProperties": false,
+      "required": ["enabled", "log_business_run_key"],
+      "properties": {"enabled": {"type": "boolean"}, "log_business_run_key": {"type": "boolean"}}
+    },
+    "secret_references": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false, "required": ["provider", "name"],
+        "properties": {
+          "provider": {"enum": ["azure_key_vault", "databricks_scope"]},
+          "name": {"type": "string", "minLength": 1},
+          "vault_url": {"type": "string"},
+          "scope": {"type": "string"}
+        },
+        "allOf": [
+          {"if": {"properties": {"provider": {"const": "azure_key_vault"}}}, "then": {"required": ["vault_url"]}},
+          {"if": {"properties": {"provider": {"const": "databricks_scope"}}}, "then": {"required": ["scope"]}}
+        ]
+      }
+    },
+    "reject_data": {
+      "type": "object", "additionalProperties": false, "required": ["path"],
+      "properties": {"path": {"type": "string", "minLength": 1}}
+    },
+    "data_quality": {
+      "type": "object", "additionalProperties": false,
+      "required": ["max_reject_count", "minimum_accepted_rows", "max_amount_cents"],
+      "properties": {
+        "max_reject_count": {"type": "integer", "minimum": 0},
+        "minimum_accepted_rows": {"type": "integer", "minimum": 0},
+        "max_amount_cents": {"type": "integer", "minimum": 0, "maximum": 999999999999999999}
+      }
+    },
+    "notifications": {
+      "type": "object", "additionalProperties": false,
+      "required": ["enabled", "delivery", "secret_ref"],
+      "properties": {
+        "enabled": {"type": "boolean"}, "delivery": {"const": "outbox"},
+        "secret_ref": {"type": ["string", "null"]}
+      }
+    },
+    "environment_overrides": {"type": "object", "additionalProperties": {"type": "object"}},
+    "force_restart": {
+      "type": "object", "additionalProperties": false,
+      "required": ["enabled", "from_node"],
+      "properties": {"enabled": {"type": "boolean"}, "from_node": {"type": ["string", "null"]}}
+    },
+    "force_rerun": {"type": "boolean"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+    "category": {
+      "enum": ["BUSINESS", "INFRASTRUCTURE", "TIMEOUT", "CONFIGURATION", "DATA_QUALITY",
+               "DEPENDENCY", "RETRYABLE_APPLICATION", "NON_RETRYABLE_APPLICATION"]
+    },
+    "node": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "id", "notebook", "original_stage", "description", "dependencies", "trigger", "parameters",
+        "expected_outputs", "timeout_seconds", "retry", "restart", "idempotency",
+        "checkpoint", "failure_classification", "critical", "concurrency_group", "resources"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"}, "notebook": {"$ref": "#/$defs/id"},
+        "original_stage": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1},
+        "dependencies": {"type": "array", "items": {"$ref": "#/$defs/id"}},
+        "trigger": {
+          "type": "object", "additionalProperties": false, "required": ["type"],
+          "properties": {
+            "type": {"enum": ["all_success", "any_success", "all_done", "any_failed", "any_timed_out"]},
+            "condition": {
+              "type": "object", "additionalProperties": false, "required": ["parameter", "equals"],
+              "properties": {"parameter": {"type": "string", "minLength": 1}, "equals": {}}
+            }
+          }
+        },
+        "parameters": {"type": "object"},
+        "expected_outputs": {
+          "type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}
+        },
+        "timeout_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "retry": {
+          "type": "object", "additionalProperties": false,
+          "required": ["max_retries", "delay_seconds", "backoff", "max_delay_seconds", "categories"],
+          "properties": {
+            "max_retries": {"type": "integer", "minimum": 0},
+            "delay_seconds": {"type": "number", "minimum": 0},
+            "backoff": {"type": "number", "minimum": 1},
+            "max_delay_seconds": {"type": "number", "minimum": 0},
+            "categories": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/category"}}
+          }
+        },
+        "restart": {
+          "type": "object", "additionalProperties": false, "required": ["eligible", "policy"],
+          "properties": {"eligible": {"type": "boolean"}, "policy": {"enum": ["reuse_valid", "rerun"]}}
+        },
+        "idempotency": {
+          "type": "object", "additionalProperties": false,
+          "required": ["strategy", "commit_boundary", "partial_write", "recovery", "duplicate_prevention", "output_validation"],
+          "properties": {
+            "strategy": {"enum": ["natural", "overwrite", "merge", "deduplicate", "checkpoint", "compensation", "manual"]},
+            "commit_boundary": {"type": "string", "minLength": 1},
+            "partial_write": {"type": "string", "minLength": 1},
+            "recovery": {"type": "string", "minLength": 1},
+            "duplicate_prevention": {"type": "string", "minLength": 1},
+            "output_validation": {"type": "string", "minLength": 1},
+            "compensation_node": {"$ref": "#/$defs/id"}
+          }
+        },
+        "checkpoint": {
+          "type": "object", "additionalProperties": false, "required": ["name", "required"],
+          "properties": {"name": {"$ref": "#/$defs/id"}, "required": {"const": true}}
+        },
+        "failure_classification": {"$ref": "#/$defs/category"},
+        "critical": {"type": "boolean"}, "concurrency_group": {"$ref": "#/$defs/id"},
+        "resources": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 1}}
+      }
+    }
+  }
+}
